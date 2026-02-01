@@ -4,13 +4,16 @@ const app = express();
 app.use(express.json());
 
 // ====== Config ======
-const BASE_URL = process.env.CLINICALL_BASE_URL || "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
-const TENANTID = process.env.CLINICALL_TENANTID; // ex: 
-const LOGIN = process.env.CLINICALL_LOGIN;       // ex: 
-const PASSWORD = process.env.CLINICALL_PASSWORD; // ex: 
+const BASE_URL =
+  process.env.CLINICALL_BASE_URL || "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
+const TENANTID = process.env.CLINICALL_TENANTID;
+const LOGIN = process.env.CLINICALL_LOGIN;
+const PASSWORD = process.env.CLINICALL_PASSWORD;
 
 if (!TENANTID || !LOGIN || !PASSWORD) {
-  console.warn("[WARN] Missing env vars: CLINICALL_TENANTID / CLINICALL_LOGIN / CLINICALL_PASSWORD");
+  console.warn(
+    "[WARN] Missing env vars: CLINICALL_TENANTID / CLINICALL_LOGIN / CLINICALL_PASSWORD"
+  );
 }
 
 // ====== Token cache em memória ======
@@ -43,7 +46,7 @@ async function authenticate() {
   const token = resp.headers.get("x-auth-token");
   if (!token) {
     const body = await resp.text().catch(() => "");
-    throw new Error(`Auth succeeded but x-auth-token missing. Body: ${body}`);
+    throw new Error(`Auth ok but x-auth-token missing. Body: ${body}`);
   }
 
   cachedToken = token;
@@ -52,8 +55,6 @@ async function authenticate() {
 }
 
 async function getToken() {
-  // Se já tem token, reutiliza.
-  // (Sem expiração declarada, a gente depende do 401 pra reauth)
   if (cachedToken) return cachedToken;
   return authenticate();
 }
@@ -74,7 +75,6 @@ async function clinicallRequest(path, { method = "GET", body, headers = {} } = {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    // Se token expirou, tenta reauth 1x
     if (resp.status === 401) return { resp, unauthorized: true };
     return { resp, unauthorized: false };
   };
@@ -99,7 +99,11 @@ async function clinicallRequest(path, { method = "GET", body, headers = {} } = {
     : await resp.text();
 
   if (!resp.ok) {
-    throw new Error(`Clinicall error ${resp.status}: ${typeof data === "string" ? data : JSON.stringify(data)}`);
+    throw new Error(
+      `Clinicall error ${resp.status}: ${
+        typeof data === "string" ? data : JSON.stringify(data)
+      }`
+    );
   }
 
   return data;
@@ -108,7 +112,17 @@ async function clinicallRequest(path, { method = "GET", body, headers = {} } = {
 // ====== Endpoints do HUB ======
 app.get("/health", (_req, res) => res.json({ ok: true, service: "clinicall-hub" }));
 
-// endpoint só pra você testar se o token está vindo
+// Retorna um token (pra testar no navegador/postman)
+app.get("/auth", async (_req, res) => {
+  try {
+    const token = await authenticate(); // força gerar novo
+    res.json({ ok: true, token, tokenCreatedAt });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// Preview do token cacheado
 app.get("/internal/token", async (_req, res) => {
   try {
     const token = await getToken();
@@ -118,8 +132,18 @@ app.get("/internal/token", async (_req, res) => {
   }
 });
 
-// placeholder: próximo é paciente
-// app.post("/patients/search", async (req, res) => { ... })
+// ====== Próximo: Paciente (exemplo placeholder) ======
+// app.post("/patients/search", async (req, res) => {
+//   try {
+//     const data = await clinicallRequest("/partners/patient/search", {
+//       method: "POST",
+//       body: req.body,
+//     });
+//     res.json(data);
+//   } catch (e) {
+//     res.status(500).json({ ok: false, error: String(e.message || e) });
+//   }
+// });
 
 const PORT = process.env.PORT || 3333;
 app.listen(PORT, "0.0.0.0", () => console.log(`API running on ${PORT}`));
