@@ -4,34 +4,22 @@ const app = express();
 app.use(express.json());
 
 // ====== Config ======
-const BASE_URL =
-  process.env.CLINICALL_BASE_URL || "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
+const BASE_URL = process.env.CLINICALL_BASE_URL || "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
+const TENANTID = process.env.CLINICALL_TENANTID;
+const LOGIN = process.env.CLINICALL_LOGIN;
+const PASSWORD = process.env.CLINICALL_PASSWORD;
 
-const TENANTID = process.env.CLINICALL_TENANTID; // ex: institutosonoemente
-const LOGIN = process.env.CLINICALL_LOGIN;       // ex: iaqueatende
-const PASSWORD = process.env.CLINICALL_PASSWORD; // ex: Iaqueatende123
+if (!TENANTID || !LOGIN || !PASSWORD) {
+  console.warn("[WARN] Missing env vars: CLINICALL_TENANTID / CLINICALL_LOGIN / CLINICALL_PASSWORD");
+}
 
-// ====== Token cache em memória ======
+// ====== Token cache ======
 let cachedToken = null;
 let tokenCreatedAt = null;
 
-// ====== Helpers ======
-function mask(v) {
-  if (!v) return null;
-  if (v.length <= 4) return "****";
-  return `${v.slice(0, 2)}****${v.slice(-2)}`;
-}
-
+// ====== Auth ======
 async function authenticate() {
-  if (!TENANTID || !LOGIN || !PASSWORD) {
-    throw new Error(
-      `Missing env vars. Need: CLINICALL_TENANTID, CLINICALL_LOGIN, CLINICALL_PASSWORD`
-    );
-  }
-
-  const url = `${BASE_URL}/authenticate`;
-
-  const resp = await fetch(url, {
+  const resp = await fetch(`${BASE_URL}/authenticate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -44,15 +32,14 @@ async function authenticate() {
     }),
   });
 
-  const text = await resp.text().catch(() => "");
   if (!resp.ok) {
-    // devolve o corpo pra debug (sem vazar senha)
-    throw new Error(`Auth failed: ${resp.status} ${resp.statusText} ${text}`);
+    const text = await resp.text();
+    throw new Error(`Auth failed: ${resp.status} ${text}`);
   }
 
   const token = resp.headers.get("x-auth-token");
   if (!token) {
-    throw new Error(`Auth OK but x-auth-token missing. Body: ${text}`);
+    throw new Error("Auth OK but x-auth-token not found");
   }
 
   cachedToken = token;
@@ -65,29 +52,44 @@ async function getToken() {
   return authenticate();
 }
 
-// ====== Endpoints do HUB ======
-app.get("/", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "clinicall-hub",
-    endpoints: ["/health", "/internal/env", "/internal/token"],
+// ====== Clinicall Request Wrapper ======
+async function clinicallRequest(path, options = {}) {
+  const token = await getToken();
+
+  const resp = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      "X-Auth-Token": token,
+      ...(options.headers || {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
   });
+
+  if (resp.status === 401) {
+    cachedToken = null;
+    const newToken = await authenticate();
+
+    return clinicallRequest(path, {
+      ...options,
+      headers: { "X-Auth-Token": newToken },
+    });
+  }
+
+  const data = await resp.json();
+
+  if (!resp.ok) {
+    throw new Error(JSON.stringify(data));
+  }
+
+  return data;
+}
+
+// ====== Endpoints ======
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, service: "clinicall-hub" });
 });
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "clinicall-hub" }));
-
-// debug: confirma se o Coolify carregou as env vars
-app.get("/internal/env", (_req, res) => {
-  res.json({
-    ok: true,
-    BASE_URL,
-    CLINICALL_TENANTID: mask(TENANTID),
-    CLINICALL_LOGIN: mask(LOGIN),
-    CLINICALL_PASSWORD: PASSWORD ? "****(set)" : null,
-  });
-});
-
-// tenta autenticar e mostra preview do token
 app.get("/internal/token", async (_req, res) => {
   try {
     const token = await getToken();
@@ -97,9 +99,12 @@ app.get("/internal/token", async (_req, res) => {
       tokenCreatedAt,
     });
   } catch (e) {
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => console.log(`API running on ${PORT}`));
+// ====== Server ======
+const PORT = process.env.PORT || 3333;
+app.listen(PORT, "0.0.0.0", () =>
+  console.log(`Clinicall Hub running on port ${PORT}`)
+);
