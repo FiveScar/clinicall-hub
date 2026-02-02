@@ -158,5 +158,43 @@ app.get("/internal/token", async (_req, res) => {
 // Próximo: paciente (a gente pluga jájá)
 // app.post("/patients/search", async (req, res) => { ... })
 
+// ====== Patients ======
+// HUB: POST /patients/search
+// Clinicall: POST /partners/patient/search
+app.post("/patients/search", async (req, res) => {
+  try {
+    // aceita o body como você mandar no Postman
+    const {
+      argument = "",
+      page = 0,
+      sizePage = 25,
+      fieldSort = "name",
+      sortDirection = "asc",
+    } = req.body || {};
+
+    // Normaliza valores básicos
+    const payload = {
+      argument: String(argument ?? ""),
+      page: Number.isFinite(Number(page)) ? Number(page) : 0,
+      sizePage: Number.isFinite(Number(sizePage)) ? Number(sizePage) : 25,
+      fieldSort: String(fieldSort ?? "name"),
+      sortDirection: String(sortDirection ?? "asc"),
+    };
+
+    const data = await clinicallRequest("/partners/patient/search", {
+      method: "POST",
+      body: payload,
+    });
+
+    return res.json(data);
+  } catch (e) {
+    return res.status(500).json({
+      ok: false,
+      error: String(e?.message || e),
+    });
+  }
+});
+
+
 const PORT = process.env.PORT || 3333;
 app.listen(PORT, "0.0.0.0", () => console.log(`API running on ${PORT}`));
