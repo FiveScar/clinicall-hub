@@ -12,11 +12,11 @@ router.post(
   "/search",
   asyncHandler(async (req, res) => {
     const payload = {
-      argument: req.body?.argument ?? "",
-      page: req.body?.page ?? 0,
-      sizePage: req.body?.sizePage ?? 25,
-      fieldSort: req.body?.fieldSort ?? "name",
-      sortDirection: req.body?.sortDirection ?? "asc",
+      argument: req.body.argument ?? "",
+      page: req.body.page ?? 0,
+      sizePage: req.body.sizePage ?? 25,
+      fieldSort: req.body.fieldSort ?? "name",
+      sortDirection: req.body.sortDirection ?? "asc",
     };
 
     const data = await clinicallRequest("/partners/patient/search", {
@@ -30,18 +30,26 @@ router.post(
 
 /**
  * POST /patients
- * Cria paciente
- * Obrigatórios (docs): name, cpf, phoneStandart, birthday
+ * body mínimo: { name, cpf, phoneStandart, birthday }
  */
 router.post(
   "/",
   asyncHandler(async (req, res) => {
+    const { name, cpf, phoneStandart, birthday } = req.body || {};
+
+    if (!name || !cpf || !phoneStandart || !birthday) {
+      return res.status(400).json({
+        ok: false,
+        error: "Missing required fields: name, cpf, phoneStandart, birthday",
+      });
+    }
+
     const payload = {
       ...req.body,
-      name: req.body?.name,
-      cpf: req.body?.cpf,
-      phoneStandart: req.body?.phoneStandart,
-      birthday: req.body?.birthday,
+      name,
+      cpf,
+      phoneStandart,
+      birthday,
     };
 
     const data = await clinicallRequest("/partners/patient", {
@@ -55,7 +63,6 @@ router.post(
 
 /**
  * GET /patients/:patientId
- * Busca paciente por ID
  */
 router.get(
   "/:patientId",
@@ -72,16 +79,19 @@ router.get(
 
 /**
  * PUT /patients/:patientId
- * Atualiza paciente por ID
  */
 router.put(
   "/:patientId",
   asyncHandler(async (req, res) => {
     const { patientId } = req.params;
 
+    const payload = {
+      ...req.body,
+    };
+
     const data = await clinicallRequest(`/partners/patient/${patientId}`, {
       method: "PUT",
-      body: { ...req.body },
+      body: payload,
     });
 
     res.json(data);
@@ -90,7 +100,6 @@ router.put(
 
 /**
  * DELETE /patients/:patientId
- * Remove paciente por ID
  */
 router.delete(
   "/:patientId",
@@ -100,25 +109,6 @@ router.delete(
     const data = await clinicallRequest(`/partners/patient/${patientId}`, {
       method: "DELETE",
     });
-
-    res.json(data);
-  })
-);
-
-/**
- * GET /patients/birthday/:month/:day
- * Aniversariantes (rota da Clinicall):
- * /partners/birthday-person/today-month/:month/:day
- */
-router.get(
-  "/birthday/:month/:day",
-  asyncHandler(async (req, res) => {
-    const { month, day } = req.params;
-
-    const data = await clinicallRequest(
-      `/partners/birthday-person/today-month/${month}/${day}`,
-      { method: "GET" }
-    );
 
     res.json(data);
   })
