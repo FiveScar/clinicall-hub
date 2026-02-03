@@ -4,11 +4,15 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
 
-// GET /companies/all
-router.get(
-  "/all",
-  asyncHandler(async (_req, res) => {
-    const data = await clinicall.request("/partners/company/all");
+// POST /companies/search
+router.post(
+  "/search",
+  asyncHandler(async (req, res) => {
+    const data = await clinicall.request("/partners/company/search", {
+      method: "POST",
+      body: req.body,
+    });
+
     res.json(data);
   })
 );
