@@ -1,12 +1,10 @@
-// src/routes/schedules.routes.js
 import express from "express";
 import clinicall from "../clinicall/client.js";
 
 const router = express.Router();
 
 /**
- * ✅ POST /schedules/search
- * -> Clinicall: POST /partners/schedule/v2/search
+ * search
  */
 router.post("/search", async (req, res, next) => {
   try {
@@ -22,21 +20,11 @@ router.post("/search", async (req, res, next) => {
 });
 
 /**
- * ✅ GET /schedules/status/:type/simpleList
- * type: patientStatus | scheduleStatus
- * -> Clinicall: GET /partners/status/:type/simpleList
+ * status list passthrough
  */
 router.get("/status/:type/simpleList", async (req, res, next) => {
   try {
     const { type } = req.params;
-
-    const allowed = new Set(["patientStatus", "scheduleStatus"]);
-    if (!allowed.has(type)) {
-      return res.status(400).json({
-        ok: false,
-        error: "type inválido. Use patientStatus ou scheduleStatus.",
-      });
-    }
 
     const data = await clinicall.request(`/partners/status/${type}/simpleList`, {
       method: "GET",
@@ -49,19 +37,14 @@ router.get("/status/:type/simpleList", async (req, res, next) => {
 });
 
 /**
- * 🧪 GET /schedules/confirm/:scheduleId
- * -> Clinicall: GET /partners/scheduleConfirm/:scheduleId
+ * confirm via patientStatus = C
  */
-router.get("/confirm/:scheduleId", async (req, res, next) => {
+router.post("/:id/confirm", async (req, res, next) => {
   try {
-    const { scheduleId } = req.params;
+    const { id } = req.params;
 
-    if (!scheduleId) {
-      return res.status(400).json({ ok: false, error: "scheduleId obrigatório" });
-    }
-
-    const data = await clinicall.request(`/partners/scheduleConfirm/${scheduleId}`, {
-      method: "GET",
+    const data = await clinicall.request(`/partners/${id}/patientStatus/C`, {
+      method: "POST",
     });
 
     res.json({ ok: true, data });
@@ -71,47 +54,14 @@ router.get("/confirm/:scheduleId", async (req, res, next) => {
 });
 
 /**
- * ❌/🧪 POST /schedules/confirm
- * -> Clinicall: POST /partners/scheduleConfirm
- * Body: repassa tudo (mínimo: scheduleId)
+ * cancel via patientStatus = B
  */
-router.post("/confirm", async (req, res, next) => {
+router.post("/:id/cancel", async (req, res, next) => {
   try {
-    const body = req.body ?? {};
-    const { scheduleId } = body;
+    const { id } = req.params;
 
-    if (!scheduleId) {
-      return res.status(400).json({ ok: false, error: "scheduleId obrigatório" });
-    }
-
-    const data = await clinicall.request("/partners/scheduleConfirm", {
+    const data = await clinicall.request(`/partners/${id}/patientStatus/B`, {
       method: "POST",
-      body,
-    });
-
-    res.json({ ok: true, data });
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * ❌/🧪 POST /schedules/cancel
- * -> Clinicall: POST /partners/scheduleCancel
- * Body: repassa tudo (mínimo: scheduleId)
- */
-router.post("/cancel", async (req, res, next) => {
-  try {
-    const body = req.body ?? {};
-    const { scheduleId } = body;
-
-    if (!scheduleId) {
-      return res.status(400).json({ ok: false, error: "scheduleId obrigatório" });
-    }
-
-    const data = await clinicall.request("/partners/scheduleCancel", {
-      method: "POST",
-      body,
     });
 
     res.json({ ok: true, data });
