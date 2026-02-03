@@ -12,23 +12,29 @@ const router = Router();
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
-    // 1) tenta v2
+    // remove chaves com null/undefined
+    const cleaned = Object.fromEntries(
+      Object.entries(req.body || {}).filter(([, v]) => v !== null && v !== undefined)
+    );
+
+    // tenta v2 primeiro
     try {
       const v2 = await clinicall.request("/partners/schedule/v2/search", {
         method: "POST",
-        body: req.body,
+        body: cleaned,
       });
       return res.json(v2);
-    } catch (err) {
-      // 2) se v2 falhar (ex: 403 formulario inválido), tenta v1
+    } catch (_err) {
+      // fallback v1
       const v1 = await clinicall.request("/partners/schedule/search", {
         method: "POST",
-        body: req.body,
+        body: cleaned,
       });
       return res.json(v1);
     }
   })
 );
+
 
 /**
  * GET /schedules/status/patientStatus/simpleList
