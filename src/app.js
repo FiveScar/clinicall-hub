@@ -12,3 +12,10 @@ app.get("/health", (_req, res) =>
 app.use("/patients", patientsRoutes);
 
 export default app;
+
+import { notFound, errorHandler } from "./utils/errors.js";
+
+// ... suas rotas acima
+
+app.use(notFound);
+app.use(errorHandler);

@@ -6,7 +6,6 @@ const router = Router();
 
 /**
  * POST /patients/search
- * body: { argument, page, sizePage, fieldSort, sortDirection }
  */
 router.post(
   "/search",
@@ -20,39 +19,6 @@ router.post(
     };
 
     const data = await clinicallRequest("/partners/patient/search", {
-      method: "POST",
-      body: payload,
-    });
-
-    res.json(data);
-  })
-);
-
-/**
- * POST /patients
- * body mínimo: { name, cpf, phoneStandart, birthday }
- */
-router.post(
-  "/",
-  asyncHandler(async (req, res) => {
-    const { name, cpf, phoneStandart, birthday } = req.body || {};
-
-    if (!name || !cpf || !phoneStandart || !birthday) {
-      return res.status(400).json({
-        ok: false,
-        error: "Missing required fields: name, cpf, phoneStandart, birthday",
-      });
-    }
-
-    const payload = {
-      ...req.body,
-      name,
-      cpf,
-      phoneStandart,
-      birthday,
-    };
-
-    const data = await clinicallRequest("/partners/patient", {
       method: "POST",
       body: payload,
     });
@@ -78,7 +44,33 @@ router.get(
 );
 
 /**
+ * POST /patients
+ * body mínimo: { name, cpf, phoneStandart, birthday }
+ */
+router.post(
+  "/",
+  asyncHandler(async (req, res) => {
+    const payload = {
+      ...req.body,
+      name: req.body.name,
+      cpf: req.body.cpf,
+      phoneStandart: req.body.phoneStandart,
+      birthday: req.body.birthday,
+    };
+
+    const data = await clinicallRequest("/partners/patient", {
+      method: "POST",
+      body: payload,
+    });
+
+    res.json(data);
+  })
+);
+
+/**
  * PUT /patients/:patientId
+ * Observação: na documentação “real” aparece PUT em /partners/patient com o id no body.
+ * Então aqui a gente adapta.
  */
 router.put(
   "/:patientId",
@@ -87,9 +79,10 @@ router.put(
 
     const payload = {
       ...req.body,
+      id: Number(patientId),
     };
 
-    const data = await clinicallRequest(`/partners/patient/${patientId}`, {
+    const data = await clinicallRequest("/partners/patient", {
       method: "PUT",
       body: payload,
     });
