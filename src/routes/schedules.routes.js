@@ -1,15 +1,19 @@
 import express from "express";
-import clinicall from "../clinicall/client.js"; // mantenha o caminho EXATO que você já usa no projeto
+import clinicall from "../clinicall/client.js";
 
 const router = express.Router();
 
 /**
- * ✅ POST /schedules/search
- * Clinicall: POST /partners/schedule/v2/search
+ * POST /schedules/search
  */
 router.post("/search", async (req, res, next) => {
   try {
-    const data = await clinicall.post("/partners/schedule/v2/search", req.body);
+    const data = await clinicall.request({
+      method: "POST",
+      path: "/partners/schedule/v2/search",
+      body: req.body,
+    });
+
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -17,23 +21,17 @@ router.post("/search", async (req, res, next) => {
 });
 
 /**
- * ✅ GET /schedules/status/patientStatus/simpleList
- * ✅ GET /schedules/status/scheduleStatus/simpleList
- * Clinicall: GET /partners/status/:type/simpleList
+ * GET /schedules/status/:type/simpleList
  */
 router.get("/status/:type/simpleList", async (req, res, next) => {
   try {
     const { type } = req.params;
 
-    const allowed = new Set(["patientStatus", "scheduleStatus"]);
-    if (!allowed.has(type)) {
-      return res.status(400).json({
-        ok: false,
-        error: "type inválido. Use patientStatus ou scheduleStatus.",
-      });
-    }
+    const data = await clinicall.request({
+      method: "GET",
+      path: `/partners/status/${type}/simpleList`,
+    });
 
-    const data = await clinicall.get(`/partners/status/${type}/simpleList`);
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -41,22 +39,17 @@ router.get("/status/:type/simpleList", async (req, res, next) => {
 });
 
 /**
- * 🧪 GET /schedules/confirm/:scheduleId
- * Clinicall: GET /partners/scheduleConfirm/:scheduleId
- *
- * Objetivo: inspecionar a resposta da Clinicall:
- * - ela pode devolver "code"/"confirmationCode"
- * - ou dados dizendo por que não localiza
+ * GET /schedules/confirm/:scheduleId
  */
 router.get("/confirm/:scheduleId", async (req, res, next) => {
   try {
     const { scheduleId } = req.params;
 
-    if (!scheduleId) {
-      return res.status(400).json({ ok: false, error: "scheduleId obrigatório" });
-    }
+    const data = await clinicall.request({
+      method: "GET",
+      path: `/partners/scheduleConfirm/${scheduleId}`,
+    });
 
-    const data = await clinicall.get(`/partners/scheduleConfirm/${scheduleId}`);
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -64,25 +57,18 @@ router.get("/confirm/:scheduleId", async (req, res, next) => {
 });
 
 /**
- * ❌/🧪 POST /schedules/confirm
- * Clinicall: POST /partners/scheduleConfirm
- *
- * IMPORTANTE:
- * A doc diz que confirma "informando o código de confirmação".
- * Então aqui nós:
- * - exigimos scheduleId
- * - e repassamos o body inteiro (pra aceitar scheduleId + code/confirmationCode/etc)
+ * POST /schedules/confirm
  */
 router.post("/confirm", async (req, res, next) => {
   try {
-    const body = req.body ?? {};
-    const { scheduleId } = body;
+    const { scheduleId } = req.body;
 
-    if (!scheduleId) {
-      return res.status(400).json({ ok: false, error: "scheduleId obrigatório" });
-    }
+    const data = await clinicall.request({
+      method: "POST",
+      path: "/partners/scheduleConfirm",
+      body: { scheduleId },
+    });
 
-    const data = await clinicall.post("/partners/scheduleConfirm", body);
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -90,22 +76,18 @@ router.post("/confirm", async (req, res, next) => {
 });
 
 /**
- * ❌/🧪 POST /schedules/cancel
- * Clinicall: POST /partners/scheduleCancel
- *
- * Aqui também repassamos o body inteiro (por segurança),
- * mas exigimos scheduleId.
+ * POST /schedules/cancel
  */
 router.post("/cancel", async (req, res, next) => {
   try {
-    const body = req.body ?? {};
-    const { scheduleId } = body;
+    const { scheduleId } = req.body;
 
-    if (!scheduleId) {
-      return res.status(400).json({ ok: false, error: "scheduleId obrigatório" });
-    }
+    const data = await clinicall.request({
+      method: "POST",
+      path: "/partners/scheduleCancel",
+      body: { scheduleId },
+    });
 
-    const data = await clinicall.post("/partners/scheduleCancel", body);
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
