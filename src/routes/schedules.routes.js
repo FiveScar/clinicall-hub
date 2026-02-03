@@ -4,26 +4,28 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
 
-/**
- * 🔍 Search schedules (auto v2 fallback)
- * POST /schedules/search
- */
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
-    try {
-      // tenta v2 primeiro
-      const data = await clinicall.request("/partners/schedule/v2/search", {
+    // tenta v2 primeiro
+    const v2 = await clinicall.request("/partners/schedule/v2/search", {
+      method: "POST",
+      body: req.body,
+    });
+
+    // Se a Clinicall retornou erro em formato JSON (code != INFO), faz fallback pro v1
+    if (v2 && typeof v2 === "object" && v2.code && v2.code !== "INFO") {
+      const v1 = await clinicall.request("/partners/schedule/search", {
         method: "POST",
         body: req.body,
       });
-      return res.json(data);
-    } catch (err) {
-      // fallback v1
-      const data = await clinicall.request("/partners/schedule/search", {
-        method: "POST",
-        body: req.body,
-      });
+      return res.json(v1);
+    }
+
+    return res.json(v2);
+  })
+);
+
       return res.json(data);
     }
   })
