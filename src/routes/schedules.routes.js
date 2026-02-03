@@ -1,29 +1,37 @@
 import { Router } from "express";
 import clinicall from "../clinicall/client.js";
-import asyncHandler from "../utils/asyncHandler.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
 
 /**
- * 🔍 Search schedules
+ * 🔍 Search schedules (auto v2 fallback)
  * POST /schedules/search
- * -> Clinicall: POST /partners/schedule/search
  */
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
-    const data = await clinicall.request("/partners/schedule/search", {
-      method: "POST",
-      body: req.body,
-    });
-    res.json(data);
+    try {
+      // tenta v2 primeiro
+      const data = await clinicall.request("/partners/schedule/v2/search", {
+        method: "POST",
+        body: req.body,
+      });
+      return res.json(data);
+    } catch (err) {
+      // fallback v1
+      const data = await clinicall.request("/partners/schedule/search", {
+        method: "POST",
+        body: req.body,
+      });
+      return res.json(data);
+    }
   })
 );
 
 /**
- * 🧾 Create/Update schedule (upsert)
+ * 🧾 Create/Update schedule
  * PUT /schedules
- * -> Clinicall: PUT /partners/schedule
  */
 router.put(
   "/",
@@ -37,23 +45,23 @@ router.put(
 );
 
 /**
- * ✅ Get schedule confirmation details
+ * ✅ Get confirmation details
  * GET /schedules/confirm/:scheduleId
- * -> Clinicall: GET /partners/scheduleConfirm/:scheduleId
  */
 router.get(
   "/confirm/:scheduleId",
   asyncHandler(async (req, res) => {
     const { scheduleId } = req.params;
-    const data = await clinicall.request(`/partners/scheduleConfirm/${scheduleId}`);
+    const data = await clinicall.request(
+      `/partners/scheduleConfirm/${scheduleId}`
+    );
     res.json(data);
   })
 );
 
 /**
- * ✅ Confirm schedule (post confirmation code)
+ * ✅ Confirm schedule
  * POST /schedules/confirm
- * -> Clinicall: POST /partners/scheduleConfirm
  */
 router.post(
   "/confirm",
@@ -67,19 +75,31 @@ router.post(
 );
 
 /**
- /**
- * ❌ Cancel schedule (v2)
+ * ❌ Cancel schedule (auto fallback)
  * POST /schedules/cancel
- * -> Clinicall: POST /partners/schedule/v2/cancel
  */
 router.post(
   "/cancel",
   asyncHandler(async (req, res) => {
-    const data = await clinicall.request("/partners/schedule/v2/cancel", {
-      method: "POST",
-      body: req.body,
-    });
-    res.json(data);
+    try {
+      const data = await clinicall.request(
+        "/partners/schedule/v2/cancel",
+        {
+          method: "POST",
+          body: req.body,
+        }
+      );
+      return res.json(data);
+    } catch (err) {
+      const data = await clinicall.request(
+        "/partners/schedule/cancel",
+        {
+          method: "POST",
+          body: req.body,
+        }
+      );
+      return res.json(data);
+    }
   })
 );
 
