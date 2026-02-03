@@ -67,50 +67,18 @@ router.post(
 );
 
 /**
- * ❌ Cancel schedule
+ /**
+ * ❌ Cancel schedule (v2)
  * POST /schedules/cancel
- * -> Clinicall: POST /partners/scheduleCancel
+ * -> Clinicall: POST /partners/schedule/v2/cancel
  */
 router.post(
   "/cancel",
   asyncHandler(async (req, res) => {
-    const data = await clinicall.request("/partners/scheduleCancel", {
+    const data = await clinicall.request("/partners/schedule/v2/cancel", {
       method: "POST",
       body: req.body,
     });
-    res.json(data);
-  })
-);
-
-/**
- * 🔁 Update schedule status
- * POST /schedules/:scheduleId/:type/:status
- * -> Clinicall: POST /partners/:scheduleId/:type/:status
- *
- * type: patientStatus | scheduleStatus
- */
-router.post(
-  "/:scheduleId/:type/:status",
-  asyncHandler(async (req, res) => {
-    const { scheduleId, type, status } = req.params;
-    const data = await clinicall.request(`/partners/${scheduleId}/${type}/${status}`, {
-      method: "POST",
-      body: req.body, // se não precisar body, pode mandar {} do n8n
-    });
-    res.json(data);
-  })
-);
-
-/**
- * 📋 Simple status list
- * GET /schedules/status/:type/simpleList
- * -> Clinicall: GET /partners/status/:type/simpleList
- */
-router.get(
-  "/status/:type/simpleList",
-  asyncHandler(async (req, res) => {
-    const { type } = req.params;
-    const data = await clinicall.request(`/partners/status/${type}/simpleList`);
     res.json(data);
   })
 );
