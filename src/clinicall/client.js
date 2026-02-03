@@ -10,7 +10,9 @@ export class HttpError extends Error {
 }
 
 export async function clinicallRequest(path, { method = "GET", body, headers = {} } = {}) {
-  const url = `${BASE_URL}${path}`;
+  const BASE_URL =
+  process.env.CLINICALL_BASE_URL ||
+  "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
   let token = await getToken();
 
   const doFetch = async (tokenToUse) => {
