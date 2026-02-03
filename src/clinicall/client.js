@@ -113,3 +113,10 @@ export async function clinicallRequest(
 
   return data;
 }
+const clinicall = {
+  authenticate,
+  getToken,
+  request: clinicallRequest,
+};
+
+export default clinicall;
