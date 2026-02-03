@@ -8,10 +8,11 @@ import professionalsRouter from "./routes/professionals.routes.js";
 import companiesRouter from "./routes/companies.routes.js";
 
 import buildRoutesRouter from "./routes/__routes.routes.js";
+import rpcRouter from "./routes/rpc.routes.js"; // 👈 ADICIONADO
 
 const app = express();
 
-// ✅ Request ID + log curto (barato no Coolify)
+// ✅ Request ID + log curto
 app.use((req, res, next) => {
   const requestId = crypto.randomUUID();
   req.requestId = requestId;
@@ -20,7 +21,6 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
     const ms = Date.now() - start;
-    // 1 linha por request, sem body
     console.log(
       `[${requestId}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`
     );
@@ -32,10 +32,15 @@ app.use((req, res, next) => {
 // JSON
 app.use(express.json());
 
-app.get("/health", (_req, res) => res.json({ ok: true, service: "clinicall-hub" }));
+app.get("/health", (_req, res) =>
+  res.json({ ok: true, service: "clinicall-hub" })
+);
 
-// ✅ lista de rotas do hub
+// ✅ lista de rotas
 app.use("/__routes", buildRoutesRouter(app));
+
+// ✅ RPC (antes das rotas normais ou depois, tanto faz)
+app.use("/rpc", rpcRouter); // 👈 AQUI
 
 // rotas do hub
 app.use("/patients", patientsRouter);
