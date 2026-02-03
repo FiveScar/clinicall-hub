@@ -1,3 +1,4 @@
+// src/routes/schedules.routes.js
 import { Router } from "express";
 import clinicall from "../clinicall/client.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -5,90 +6,94 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 const router = Router();
 
 /**
- * POST /schedules/search
- * - tenta v2 primeiro
- * - se v2 retornar erro (code != INFO), tenta v1
+ * SCHEDULE SEARCH
+ * Hub: POST /schedules/search
+ * Clinicall: POST /partners/schedule/v2/search  (alguns tenants usam /partners/schedule/search)
  */
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
-    // remove chaves com null/undefined
-    const cleaned = Object.fromEntries(
-      Object.entries(req.body || {}).filter(([, v]) => v !== null && v !== undefined)
-    );
+    const body = req.body ?? {};
 
-    // tenta v2 primeiro
+    // tenta primeiro v2, se der 404 cai pro legado
     try {
-      const v2 = await clinicall.request("/partners/schedule/v2/search", {
-        method: "POST",
-        body: cleaned,
-      });
-      return res.json(v2);
-    } catch (_err) {
-      // fallback v1
-      const v1 = await clinicall.request("/partners/schedule/search", {
-        method: "POST",
-        body: cleaned,
-      });
-      return res.json(v1);
+      const data = await clinicall.post("/partners/schedule/v2/search", body);
+      return res.json(data);
+    } catch (err) {
+      const msg = String(err?.message || "");
+      const is404 =
+        msg.includes("404") ||
+        msg.includes("Not Found") ||
+        msg.toLowerCase().includes("not found");
+
+      if (!is404) throw err;
+
+      const dataLegacy = await clinicall.post("/partners/schedule/search", body);
+      return res.json(dataLegacy);
     }
   })
 );
 
-
 /**
- * GET /schedules/status/patientStatus/simpleList
- * -> Clinicall: GET /partners/status/patientStatus/simpleList
+ * CONFIRM (GET) - confirmar consulta por scheduleId
+ * Hub: GET /schedules/confirm/:scheduleId
+ * Clinicall: GET /partners/scheduleConfirm/:scheduleId
  */
 router.get(
-  "/status/patientStatus/simpleList",
-  asyncHandler(async (_req, res) => {
-    const data = await clinicall.request("/partners/status/patientStatus/simpleList", {
-      method: "GET",
-    });
+  "/confirm/:scheduleId",
+  asyncHandler(async (req, res) => {
+    const { scheduleId } = req.params;
+    const data = await clinicall.get(`/partners/scheduleConfirm/${encodeURIComponent(scheduleId)}`);
     return res.json(data);
   })
 );
 
 /**
- * GET /schedules/status/scheduleStatus/simpleList
- * -> Clinicall: GET /partners/status/scheduleStatus/simpleList
- */
-router.get(
-  "/status/scheduleStatus/simpleList",
-  asyncHandler(async (_req, res) => {
-    const data = await clinicall.request("/partners/status/scheduleStatus/simpleList", {
-      method: "GET",
-    });
-    return res.json(data);
-  })
-);
-
-/**
- * POST /schedules/cancel
- * - tenta v2 primeiro
- * - se v2 retornar erro (code != INFO), tenta v1
+ * CONFIRM (POST) - caso o Clinicall exija POST para confirmar
+ * Hub: POST /schedules/confirm
+ * Clinicall: POST /partners/scheduleConfirm
  *
- * body esperado (exemplo):
- * { "scheduleId": 123, "reason": "...", ... }  (depende do que a Clinicall pede no seu tenant)
+ * Body: envie exatamente o que o Clinicall espera (ex: { scheduleId: 123 } ou outros campos)
+ */
+router.post(
+  "/confirm",
+  asyncHandler(async (req, res) => {
+    const data = await clinicall.post("/partners/scheduleConfirm", req.body ?? {});
+    return res.json(data);
+  })
+);
+
+/**
+ * CANCEL
+ * Hub: POST /schedules/cancel
+ * Clinicall: POST /partners/scheduleCancel
+ *
+ * Body esperado: { "scheduleId": 67201 }
  */
 router.post(
   "/cancel",
   asyncHandler(async (req, res) => {
-    const v2 = await clinicall.request("/partners/schedule/v2/cancel", {
-      method: "POST",
-      body: req.body,
-    });
+    const data = await clinicall.post("/partners/scheduleCancel", req.body ?? {});
+    return res.json(data);
+  })
+);
 
-    if (v2 && typeof v2 === "object" && v2.code && v2.code !== "INFO") {
-      const v1 = await clinicall.request("/partners/schedule/cancel", {
-        method: "POST",
-        body: req.body,
-      });
-      return res.json(v1);
-    }
-
-    return res.json(v2);
+/**
+ * STATUS LISTS (simpleList)
+ * Hub:
+ *  - GET /schedules/status/scheduleStatus/simpleList
+ *  - GET /schedules/status/patientStatus/simpleList
+ *
+ * Clinicall:
+ *  - GET /partners/status/scheduleStatus/simpleList
+ *  - GET /partners/status/patientStatus/simpleList
+ */
+router.get(
+  "/status/:type/simpleList",
+  asyncHandler(async (req, res) => {
+    const { type } = req.params; // scheduleStatus | patientStatus
+    const data = await clinicall.get(`/partners/status/${encodeURIComponent(type)}/simpleList`);
+    return res.json(data);
   })
 );
 
