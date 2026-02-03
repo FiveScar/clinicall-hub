@@ -1,12 +1,16 @@
-import express from "express";
+import { Router } from "express";
 import clinicall from "../clinicall/client.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
-const router = express.Router();
+const router = Router();
 
-router.get("/all", asyncHandler(async (_req, res) => {
-  const data = await clinicall.get("/partners/company/simpleList");
-  res.json(data);
-}));
+// GET /companies/all
+router.get(
+  "/all",
+  asyncHandler(async (_req, res) => {
+    const data = await clinicall.request("/partners/company/all");
+    res.json(data);
+  })
+);
 
 export default router;
