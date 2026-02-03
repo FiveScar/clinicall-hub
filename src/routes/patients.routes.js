@@ -1,7 +1,7 @@
 // src/routes/patients.routes.js
 import { Router } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { clinicallRequest } from "../clinicall/client.js";
+import clinicall from "../clinicall/client.js";
 
 const router = Router();
 
@@ -13,14 +13,14 @@ router.post(
   "/search",
   asyncHandler(async (req, res) => {
     const payload = {
-      argument: req.body.argument ?? "",
-      page: req.body.page ?? 0,
-      sizePage: req.body.sizePage ?? 25,
-      fieldSort: req.body.fieldSort ?? "name",
-      sortDirection: req.body.sortDirection ?? "asc",
+      argument: req.body?.argument ?? "",
+      page: req.body?.page ?? 0,
+      sizePage: req.body?.sizePage ?? 25,
+      fieldSort: req.body?.fieldSort ?? "name",
+      sortDirection: req.body?.sortDirection ?? "asc",
     };
 
-    const data = await clinicallRequest("/partners/patient/search", {
+    const data = await clinicall.request("/partners/patient/search", {
       method: "POST",
       body: payload,
     });
@@ -37,7 +37,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { patientId } = req.params;
 
-    const data = await clinicallRequest(`/partners/patient/${patientId}`, {
+    const data = await clinicall.request(`/partners/patient/${patientId}`, {
       method: "GET",
     });
 
@@ -53,15 +53,15 @@ router.post(
   "/",
   asyncHandler(async (req, res) => {
     const payload = {
-      // manda tudo que vier, mas garante os obrigatórios em cima
+      // manda tudo que vier, mas garante os obrigatórios abaixo
       ...req.body,
-      name: req.body.name,
-      cpf: req.body.cpf,
-      phoneStandart: req.body.phoneStandart,
-      birthday: req.body.birthday,
+      name: req.body?.name,
+      cpf: req.body?.cpf,
+      phoneStandart: req.body?.phoneStandart,
+      birthday: req.body?.birthday,
     };
 
-    const data = await clinicallRequest("/partners/patient", {
+    const data = await clinicall.request("/partners/patient", {
       method: "POST",
       body: payload,
     });
@@ -82,7 +82,7 @@ router.put(
       ...req.body,
     };
 
-    const data = await clinicallRequest(`/partners/patient/${patientId}`, {
+    const data = await clinicall.request(`/partners/patient/${patientId}`, {
       method: "PUT",
       body: payload,
     });
@@ -99,7 +99,7 @@ router.delete(
   asyncHandler(async (req, res) => {
     const { patientId } = req.params;
 
-    const data = await clinicallRequest(`/partners/patient/${patientId}`, {
+    const data = await clinicall.request(`/partners/patient/${patientId}`, {
       method: "DELETE",
     });
 
@@ -109,14 +109,14 @@ router.delete(
 
 /**
  * GET /patients/birthday/today-month/:month/:day
- * (na API Clinicall é /partners/birthday-person/today-month/day -> com month/day)
+ * Clinicall: GET /partners/birthday-person/today-month/:month/:day
  */
 router.get(
   "/birthday/today-month/:month/:day",
   asyncHandler(async (req, res) => {
     const { month, day } = req.params;
 
-    const data = await clinicallRequest(
+    const data = await clinicall.request(
       `/partners/birthday-person/today-month/${month}/${day}`,
       { method: "GET" }
     );
