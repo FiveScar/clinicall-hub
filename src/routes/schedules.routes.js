@@ -12,22 +12,21 @@ const router = Router();
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
-    const v2 = await clinicall.request("/partners/schedule/v2/search", {
-      method: "POST",
-      body: req.body,
-    });
-
-    // Clinicall geralmente retorna { code, message, details, data }
-    // Se v2 vier como erro (ex: APPLICATION_EXCEPTION), cai pro v1
-    if (v2 && typeof v2 === "object" && v2.code && v2.code !== "INFO") {
+    // 1) tenta v2
+    try {
+      const v2 = await clinicall.request("/partners/schedule/v2/search", {
+        method: "POST",
+        body: req.body,
+      });
+      return res.json(v2);
+    } catch (err) {
+      // 2) se v2 falhar (ex: 403 formulario inválido), tenta v1
       const v1 = await clinicall.request("/partners/schedule/search", {
         method: "POST",
         body: req.body,
       });
       return res.json(v1);
     }
-
-    return res.json(v2);
   })
 );
 
