@@ -5,16 +5,17 @@ import clinicall from "../clinicall/client.js";
 
 const router = Router();
 
-async function tryGet(path) {
-  try {
-    return await clinicall.request(path, { method: "GET" });
-  } catch (e) {
-    throw e;
-  }
+function isClinicall404(err) {
+  const msg = err?.message || "";
+  return msg.includes("404");
+}
+
+function isClinicall500(err) {
+  const msg = err?.message || "";
+  return msg.includes("500") || msg.includes("SYSTEM_EXCEPTION");
 }
 
 async function fetchBirthdayTodayMonth({ month, day }) {
-  // tenta variações 1) month/day 2) day/month 3) only day
   const tries = [
     `/partners/birthday-person/today-month/${month}/${day}`,
     `/partners/birthday-person/today-month/${day}/${month}`,
@@ -23,25 +24,29 @@ async function fetchBirthdayTodayMonth({ month, day }) {
 
   let lastErr = null;
 
-  for (const p of tries) {
+  for (const path of tries) {
     try {
-      return await tryGet(p);
+      return await clinicall.request(path, { method: "GET" });
     } catch (e) {
       lastErr = e;
 
-      const msg = e?.message || "";
-      // se for 404, tenta próxima variação
-      if (msg.includes("404")) continue;
+      // 404 -> tenta próxima variação
+      if (isClinicall404(e)) continue;
 
-      // se não for 404, para e sobe o erro
+      // 500 -> não adianta tentar variação, a API tá quebrando mesmo
+      if (isClinicall500(e)) throw e;
+
+      // qualquer outro erro -> sobe
       throw e;
     }
   }
 
-  // se todas deram 404, joga o último erro
   throw lastErr;
 }
 
+/**
+ * POST /patients/search
+ */
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
@@ -62,6 +67,9 @@ router.post(
   })
 );
 
+/**
+ * POST /patients
+ */
 router.post(
   "/",
   asyncHandler(async (req, res) => {
@@ -82,6 +90,9 @@ router.post(
   })
 );
 
+/**
+ * PUT /patients/:patientId
+ */
 router.put(
   "/:patientId",
   asyncHandler(async (req, res) => {
@@ -96,6 +107,9 @@ router.put(
   })
 );
 
+/**
+ * DELETE /patients/:patientId
+ */
 router.delete(
   "/:patientId",
   asyncHandler(async (req, res) => {
@@ -109,6 +123,9 @@ router.delete(
   })
 );
 
+/**
+ * GET /patients/:patientId
+ */
 router.get(
   "/:patientId",
   asyncHandler(async (req, res) => {
@@ -123,7 +140,9 @@ router.get(
 );
 
 /**
- * Birthday endpoint com erro “limpo”.
+ * GET /patients/birthday/today-month/:month/:day
+ * - mantém sua rota do HUB
+ * - retorna 502 limpo quando Clinicall dá SYSTEM_EXCEPTION
  */
 router.get(
   "/birthday/today-month/:month/:day",
@@ -134,24 +153,22 @@ router.get(
       const data = await fetchBirthdayTodayMonth({ month, day });
       return res.json(data);
     } catch (e) {
-      const msg = e?.message || "";
-
-      // Clinicall 500 -> devolve erro controlado
-      if (msg.includes("500") || msg.includes("SYSTEM_EXCEPTION")) {
+      if (isClinicall500(e)) {
         return res.status(502).json({
           ok: false,
-          error: "Clinicall birthday endpoint is unstable",
+          error: "clinicall_birthday_unstable",
           details:
-            "Clinicall retornou SYSTEM_EXCEPTION para este endpoint. Consulte o suporte/administrador do sistema Clinicall.",
-          clinicall: e?.payload ?? null,
+            "Clinicall retornou SYSTEM_EXCEPTION para birthday-person. Endpoint instável no tenant.",
         });
       }
-
       throw e;
     }
   })
 );
 
+/**
+ * GET /patients/birthday/today-month/:day
+ */
 router.get(
   "/birthday/today-month/:day",
   asyncHandler(async (req, res) => {
@@ -161,18 +178,14 @@ router.get(
       const data = await fetchBirthdayTodayMonth({ month: "0", day });
       return res.json(data);
     } catch (e) {
-      const msg = e?.message || "";
-
-      if (msg.includes("500") || msg.includes("SYSTEM_EXCEPTION")) {
+      if (isClinicall500(e)) {
         return res.status(502).json({
           ok: false,
-          error: "Clinicall birthday endpoint is unstable",
+          error: "clinicall_birthday_unstable",
           details:
-            "Clinicall retornou SYSTEM_EXCEPTION para este endpoint. Consulte o suporte/administrador do sistema Clinicall.",
-          clinicall: e?.payload ?? null,
+            "Clinicall retornou SYSTEM_EXCEPTION para birthday-person. Endpoint instável no tenant.",
         });
       }
-
       throw e;
     }
   })
