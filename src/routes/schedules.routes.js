@@ -5,14 +5,14 @@ import asyncHandler from "../utils/asyncHandler.js";
 const router = Router();
 
 /**
- * 🔍 Search schedules (v2)
+ * 🔍 Search schedules
  * POST /schedules/search
- * -> Clinicall: POST /partners/schedule/v2/search
+ * -> Clinicall: POST /partners/schedule/search
  */
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
-    const data = await clinicall.request("/partners/schedule/v2/search", {
+    const data = await clinicall.request("/partners/schedule/search", {
       method: "POST",
       body: req.body,
     });
