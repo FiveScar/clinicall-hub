@@ -1,21 +1,19 @@
+// src/app.js
 import express from "express";
-import patientsRoutes from "./routes/patients.routes.js";
+import patientsRouter from "./routes/patients.routes.js";
 
 const app = express();
-
 app.use(express.json());
 
-app.get("/health", (_req, res) =>
-  res.json({ ok: true, service: "clinicall-hub" })
-);
+app.get("/health", (_req, res) => res.json({ ok: true, service: "clinicall-hub" }));
 
-app.use("/patients", patientsRoutes);
+// monta rotas
+app.use("/patients", patientsRouter);
+
+// handler de erro padrão
+app.use((err, _req, res, _next) => {
+  const message = err?.message || String(err);
+  res.status(500).json({ ok: false, error: "Internal Server Error", details: message });
+});
 
 export default app;
-
-import { notFound, errorHandler } from "./utils/errors.js";
-
-// ... suas rotas acima
-
-app.use(notFound);
-app.use(errorHandler);

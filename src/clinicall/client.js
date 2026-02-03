@@ -1,19 +1,73 @@
 // src/clinicall/client.js
+const BASE_URL =
+  process.env.CLINICALL_BASE_URL ||
+  "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
 
-export class HttpError extends Error {
-  constructor(status, message, details) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-    this.details = details;
+const TENANTID = process.env.CLINICALL_TENANTID;
+const LOGIN = process.env.CLINICALL_LOGIN;
+const PASSWORD = process.env.CLINICALL_PASSWORD;
+
+function assertEnv() {
+  if (!TENANTID || !LOGIN || !PASSWORD) {
+    throw new Error(
+      "Missing env vars: CLINICALL_TENANTID / CLINICALL_LOGIN / CLINICALL_PASSWORD"
+    );
   }
 }
 
-export async function clinicallRequest(path, { method = "GET", body, headers = {} } = {}) {
-  const BASE_URL =
-  process.env.CLINICALL_BASE_URL ||
-  "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
-  let token = await getToken();
+// cache simples em memória
+let cachedToken = null;
+let tokenCreatedAt = null;
+
+export function getTokenMeta() {
+  return { tokenCreatedAt };
+}
+
+export async function authenticate() {
+  assertEnv();
+
+  const url = `${BASE_URL}/authenticate`;
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Tenantid": TENANTID,
+    },
+    body: JSON.stringify({
+      login: LOGIN,
+      password: PASSWORD,
+      userRtv: null,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`Auth failed: ${resp.status} ${resp.statusText} ${text}`);
+  }
+
+  const token = resp.headers.get("x-auth-token");
+  if (!token) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Auth ok, but x-auth-token missing. Body: ${body}`);
+  }
+
+  cachedToken = token;
+  tokenCreatedAt = new Date().toISOString();
+  return token;
+}
+
+export async function getToken() {
+  // sem expiração declarada -> reutiliza e reautentica só se tomar 401
+  if (cachedToken) return cachedToken;
+  return authenticate();
+}
+
+export async function clinicallRequest(
+  path,
+  { method = "GET", body, headers = {} } = {}
+) {
+  const url = `${BASE_URL}${path}`;
 
   const doFetch = async (tokenToUse) => {
     const resp = await fetch(url, {
@@ -26,30 +80,34 @@ export async function clinicallRequest(path, { method = "GET", body, headers = {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    if (resp.status === 401) return { resp, unauthorized: true };
-    return { resp, unauthorized: false };
+    return resp;
   };
 
-  let { resp, unauthorized } = await doFetch(token);
+  let token = await getToken();
+  let resp = await doFetch(token);
 
-  if (unauthorized) {
+  // reauth 1x se 401
+  if (resp.status === 401) {
     cachedToken = null;
     token = await authenticate();
-    const retry = await doFetch(token);
-    resp = retry.resp;
+    resp = await doFetch(token);
+
+    if (resp.status === 401) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`Unauthorized even after reauth. ${text}`);
+    }
   }
 
   const contentType = resp.headers.get("content-type") || "";
   const data = contentType.includes("application/json")
-    ? await resp.json().catch(() => null)
-    : await resp.text().catch(() => "");
+    ? await resp.json()
+    : await resp.text();
 
   if (!resp.ok) {
-    // joga erro preservando status e payload do Clinicall
-    throw new HttpError(
-      resp.status,
-      `Clinicall error ${resp.status}`,
-      data
+    throw new Error(
+      `Clinicall error ${resp.status}: ${
+        typeof data === "string" ? data : JSON.stringify(data)
+      }`
     );
   }
 

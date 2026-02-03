@@ -1,3 +1,4 @@
+// src/routes/patients.routes.js
 import { Router } from "express";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { clinicallRequest } from "../clinicall/client.js";
@@ -6,6 +7,7 @@ const router = Router();
 
 /**
  * POST /patients/search
+ * body: { argument, page, sizePage, fieldSort, sortDirection }
  */
 router.post(
   "/search",
@@ -51,6 +53,7 @@ router.post(
   "/",
   asyncHandler(async (req, res) => {
     const payload = {
+      // manda tudo que vier, mas garante os obrigatórios em cima
       ...req.body,
       name: req.body.name,
       cpf: req.body.cpf,
@@ -69,8 +72,6 @@ router.post(
 
 /**
  * PUT /patients/:patientId
- * Observação: na documentação “real” aparece PUT em /partners/patient com o id no body.
- * Então aqui a gente adapta.
  */
 router.put(
   "/:patientId",
@@ -79,10 +80,9 @@ router.put(
 
     const payload = {
       ...req.body,
-      id: Number(patientId),
     };
 
-    const data = await clinicallRequest("/partners/patient", {
+    const data = await clinicallRequest(`/partners/patient/${patientId}`, {
       method: "PUT",
       body: payload,
     });
@@ -102,6 +102,24 @@ router.delete(
     const data = await clinicallRequest(`/partners/patient/${patientId}`, {
       method: "DELETE",
     });
+
+    res.json(data);
+  })
+);
+
+/**
+ * GET /patients/birthday/today-month/:month/:day
+ * (na API Clinicall é /partners/birthday-person/today-month/day -> com month/day)
+ */
+router.get(
+  "/birthday/today-month/:month/:day",
+  asyncHandler(async (req, res) => {
+    const { month, day } = req.params;
+
+    const data = await clinicallRequest(
+      `/partners/birthday-person/today-month/${month}/${day}`,
+      { method: "GET" }
+    );
 
     res.json(data);
   })
