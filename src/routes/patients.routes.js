@@ -5,45 +5,43 @@ import clinicall from "../clinicall/client.js";
 
 const router = Router();
 
-/**
- * Helper: tenta variações do endpoint de aniversário
- * Ordem:
- * 1) /today-month/:month/:day
- * 2) /today-month/:day/:month
- * 3) /today-month/:day   (mês implícito = atual)  <-- bate com a doc que mostra ".../today-month/day" :contentReference[oaicite:2]{index=2}
- */
-async function fetchBirthdayTodayMonth({ month, day }) {
-  // 1) month/day
+async function tryGet(path) {
   try {
-    return await clinicall.request(
-      `/partners/birthday-person/today-month/${month}/${day}`,
-      { method: "GET" }
-    );
+    return await clinicall.request(path, { method: "GET" });
   } catch (e) {
-    const msg = e?.message || "";
-    if (!msg.includes("404")) throw e;
+    throw e;
   }
-
-  // 2) day/month
-  try {
-    return await clinicall.request(
-      `/partners/birthday-person/today-month/${day}/${month}`,
-      { method: "GET" }
-    );
-  } catch (e) {
-    const msg = e?.message || "";
-    if (!msg.includes("404")) throw e;
-  }
-
-  // 3) only day (month = current month on backend)
-  return clinicall.request(`/partners/birthday-person/today-month/${day}`, {
-    method: "GET",
-  });
 }
 
-/**
- * POST /patients/search
- */
+async function fetchBirthdayTodayMonth({ month, day }) {
+  // tenta variações 1) month/day 2) day/month 3) only day
+  const tries = [
+    `/partners/birthday-person/today-month/${month}/${day}`,
+    `/partners/birthday-person/today-month/${day}/${month}`,
+    `/partners/birthday-person/today-month/${day}`,
+  ];
+
+  let lastErr = null;
+
+  for (const p of tries) {
+    try {
+      return await tryGet(p);
+    } catch (e) {
+      lastErr = e;
+
+      const msg = e?.message || "";
+      // se for 404, tenta próxima variação
+      if (msg.includes("404")) continue;
+
+      // se não for 404, para e sobe o erro
+      throw e;
+    }
+  }
+
+  // se todas deram 404, joga o último erro
+  throw lastErr;
+}
+
 router.post(
   "/search",
   asyncHandler(async (req, res) => {
@@ -64,10 +62,6 @@ router.post(
   })
 );
 
-/**
- * POST /patients
- * body mínimo: { name, cpf, phoneStandart, birthday }
- */
 router.post(
   "/",
   asyncHandler(async (req, res) => {
@@ -88,9 +82,6 @@ router.post(
   })
 );
 
-/**
- * PUT /patients/:patientId
- */
 router.put(
   "/:patientId",
   asyncHandler(async (req, res) => {
@@ -105,9 +96,6 @@ router.put(
   })
 );
 
-/**
- * DELETE /patients/:patientId
- */
 router.delete(
   "/:patientId",
   asyncHandler(async (req, res) => {
@@ -121,9 +109,6 @@ router.delete(
   })
 );
 
-/**
- * GET /patients/:patientId
- */
 router.get(
   "/:patientId",
   asyncHandler(async (req, res) => {
@@ -138,32 +123,58 @@ router.get(
 );
 
 /**
- * ✅ GET /patients/birthday/today-month/:month/:day
- * - Mantém sua URL bonita no hub
- * - Internamente faz fallback até achar a rota real do tenant
+ * Birthday endpoint com erro “limpo”.
  */
 router.get(
   "/birthday/today-month/:month/:day",
   asyncHandler(async (req, res) => {
     const { month, day } = req.params;
 
-    const data = await fetchBirthdayTodayMonth({ month, day });
-    res.json(data);
+    try {
+      const data = await fetchBirthdayTodayMonth({ month, day });
+      return res.json(data);
+    } catch (e) {
+      const msg = e?.message || "";
+
+      // Clinicall 500 -> devolve erro controlado
+      if (msg.includes("500") || msg.includes("SYSTEM_EXCEPTION")) {
+        return res.status(502).json({
+          ok: false,
+          error: "Clinicall birthday endpoint is unstable",
+          details:
+            "Clinicall retornou SYSTEM_EXCEPTION para este endpoint. Consulte o suporte/administrador do sistema Clinicall.",
+          clinicall: e?.payload ?? null,
+        });
+      }
+
+      throw e;
+    }
   })
 );
 
-/**
- * ✅ Extra n8n-friendly: GET /patients/birthday/today-month/:day
- * (quando você não quiser passar month; backend usa mês atual)
- */
 router.get(
   "/birthday/today-month/:day",
   asyncHandler(async (req, res) => {
     const { day } = req.params;
 
-    // month não usado no fallback final; mas passamos algo para tentar 1/2 e cair no 3
-    const data = await fetchBirthdayTodayMonth({ month: "0", day });
-    res.json(data);
+    try {
+      const data = await fetchBirthdayTodayMonth({ month: "0", day });
+      return res.json(data);
+    } catch (e) {
+      const msg = e?.message || "";
+
+      if (msg.includes("500") || msg.includes("SYSTEM_EXCEPTION")) {
+        return res.status(502).json({
+          ok: false,
+          error: "Clinicall birthday endpoint is unstable",
+          details:
+            "Clinicall retornou SYSTEM_EXCEPTION para este endpoint. Consulte o suporte/administrador do sistema Clinicall.",
+          clinicall: e?.payload ?? null,
+        });
+      }
+
+      throw e;
+    }
   })
 );
 
