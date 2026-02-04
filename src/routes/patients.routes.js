@@ -1,6 +1,7 @@
 // src/routes/patients.routes.js
 import { Router } from "express";
 import { clinicallRequest } from "../clinicall/client.js";
+import { normalizePatient } from "../utils/normalize.js";
 
 const router = Router();
 
@@ -54,6 +55,19 @@ function toPageResult(found, sizePage = 25) {
   };
 }
 
+function buildPatientPayload(input = {}) {
+  const { name, cpf, phone, birthdate, ...rest } = input;
+  const payload = {
+    ...rest,
+    name: name ?? rest.name,
+    cpf: cpf ?? rest.cpf,
+    phoneStandart: rest.phoneStandart ?? phone ?? rest.phone,
+    birthDate: rest.birthDate ?? birthdate ?? rest.birthdate,
+  };
+
+  return normalizePatient(payload);
+}
+
 /**
  * GET /patients/:id
  */
@@ -72,7 +86,7 @@ router.get("/:id", async (req, res, next) => {
  */
 router.post("/", async (req, res, next) => {
   try {
-    const payload = req.body ?? {};
+    const payload = buildPatientPayload(req.body ?? {});
     const data = await clinicallRequest("POST", "/partners/patient", payload);
     res.json({ ok: true, data });
   } catch (err) {
@@ -86,7 +100,7 @@ router.post("/", async (req, res, next) => {
 router.put("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const payload = { ...(req.body ?? {}), id };
+    const payload = buildPatientPayload({ ...(req.body ?? {}), id });
     const data = await clinicallRequest("PUT", "/partners/patient", payload);
     res.json({ ok: true, data });
   } catch (err) {

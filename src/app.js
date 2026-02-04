@@ -49,6 +49,7 @@ app.use("/rpc", rpcRouter);
 // rotas do hub
 app.use("/patients", patientsRouter);
 app.use("/schedules", schedulesRouter);
+app.use("/schedule", schedulesRouter);
 app.use("/professionals", professionalsRouter);
 app.use("/companies", companiesRouter);
 app.use("/insurances", insurancesRouter);

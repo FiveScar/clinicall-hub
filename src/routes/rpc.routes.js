@@ -8,11 +8,11 @@ const router = express.Router();
  */
 const OPS = {
   // schedules
-  "schedule.search":  { method: "POST",   buildPath: () => "/schedules/search" },
-  "schedule.create":  { method: "POST",   buildPath: () => "/schedules" },
-  "schedule.update":  { method: "PUT",    buildPath: () => "/schedules" }, // reagendar/update via body
+  "schedule.search":  { method: "POST",   buildPath: () => "/schedule/search" },
+  "schedule.create":  { method: "POST",   buildPath: () => "/schedule/book" },
+  "schedule.update":  { method: "POST",   buildPath: () => "/schedule/reschedule" }, // reagendar/update via body
   "schedule.confirm": { method: "POST",   buildPath: (d) => `/schedules/${d.id}/confirm` },
-  "schedule.cancel":  { method: "POST",   buildPath: (d) => `/schedules/${d.id}/cancel` },
+  "schedule.cancel":  { method: "POST",   buildPath: () => "/schedule/cancel" },
 
   // patients
   "patient.search": { method: "POST",    buildPath: () => "/patients/search" },
