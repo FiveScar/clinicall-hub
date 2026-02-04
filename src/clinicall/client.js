@@ -4,9 +4,6 @@ const BASE_URL = (process.env.CLINICALL_BASE_URL || "").trim();
 const AUTH_TOKEN = (process.env.CLINICALL_AUTH_TOKEN || "").trim();
 const TENANT_ID = (process.env.CLINICALL_TENANTID || "").trim();
 
-if (!BASE_URL) throw new Error("Missing CLINICALL_BASE_URL env");
-if (!AUTH_TOKEN) throw new Error("Missing CLINICALL_AUTH_TOKEN env");
-
 function joinUrl(base, path) {
   const b = String(base || "").replace(/\/+$/, "");
   const p = String(path || "").replace(/^\/+/, "");
@@ -23,7 +20,14 @@ async function readJsonSafe(resp) {
   }
 }
 
+function assertEnv() {
+  if (!BASE_URL) throw new Error("Missing CLINICALL_BASE_URL env");
+  if (!AUTH_TOKEN) throw new Error("Missing CLINICALL_AUTH_TOKEN env");
+}
+
 async function doFetch(method, path, data) {
+  assertEnv();
+
   const m = String(method || "GET").toUpperCase();
   const url = joinUrl(BASE_URL, path);
 
@@ -32,7 +36,6 @@ async function doFetch(method, path, data) {
     "X-Auth-Token": AUTH_TOKEN,
   };
 
-  // dependendo do tenant, pode ser necessário
   if (TENANT_ID) headers["X-Tenantid"] = TENANT_ID;
 
   const init = { method: m, headers };
