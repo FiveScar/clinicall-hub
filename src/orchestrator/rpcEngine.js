@@ -12,30 +12,40 @@ export async function runRPC(op, data = {}) {
     // PATIENT.SEARCH
     // -------------------------
     if (op === "patient.search") {
-      const r = await clinicall.request("/partners/patient/search", {
-        method: "POST",
-        body: data,
-      });
+  const body = {
+    argument: data?.argument ?? "",
+    page: Number.isFinite(data?.page) ? data.page : 0,
+    sizePage: Number.isFinite(data?.sizePage) ? data.sizePage : 25,
+    fieldSort: data?.fieldSort ?? "name",
+    sortDirection: data?.sortDirection ?? "asc",
+  };
 
-      const list = Array.isArray(r?.content) ? r.content : [];
+  // chama a rota interna do hub
+  const r = await clinicall.request("/patients/search", {
+    method: "POST",
+    body,
+  });
 
-      if (!list.length) {
-        return contract.fallback({
-          message: "Não encontrei seu cadastro. Me diga seu nome completo.",
-          nextAction: "create_patient",
-        });
-      }
+  const list = Array.isArray(r?.content) ? r.content : [];
 
-      const patient = list[0];
+  if (!list.length) {
+    return contract.fallback({
+      message: "Não encontrei seu cadastro. Me diga seu nome completo.",
+      nextAction: "create_patient",
+    });
+  }
 
-      return contract.ok({
-        data: {
-          id: patient.id ?? null,
-          name: patient.name ?? "",
-        },
-        nextAction: "patient_found",
-      });
-    }
+  const patient = list[0];
+
+  return contract.ok({
+    data: {
+      id: patient.id ?? null,
+      name: patient.name ?? "",
+    },
+    nextAction: "patient_found",
+  });
+}
+
 
     // -------------------------
     // PROFESSIONAL.SEARCH
