@@ -10,6 +10,7 @@ import insurancesRouter from "./routes/insurances.routes.js";
 import specialitiesRouter from "./routes/specialities.routes.js";
 import proceduresRouter from "./routes/procedures.routes.js";
 import ordersRouter from "./routes/orders.routes.js";
+import { errorHandler, notFound } from "./utils/errors.js";
 
 import buildRoutesRouter from "./routes/__routes.routes.js";
 import rpcRouter from "./routes/rpc.routes.js";
@@ -56,15 +57,7 @@ app.use("/specialities", specialitiesRouter);
 app.use("/procedures", proceduresRouter);
 app.use("/orders", ordersRouter);
 
-// handler de erro padrão
-app.use((err, req, res, _next) => {
-  const message = err?.message || String(err);
-  res.status(500).json({
-    ok: false,
-    error: "Internal Server Error",
-    details: message,
-    requestId: req?.requestId,
-  });
-});
+app.use(notFound);
+app.use(errorHandler);
 
 export default app;

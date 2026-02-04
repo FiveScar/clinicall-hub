@@ -20,6 +20,16 @@ async function readJsonSafe(resp) {
   }
 }
 
+export class HttpError extends Error {
+  constructor({ status, code, message, details }) {
+    super(message || "Request failed");
+    this.name = "HttpError";
+    this.status = status || 500;
+    this.code = code || null;
+    this.details = details ?? null;
+  }
+}
+
 /**
  * clinicallRequest(method, path, data?)
  * - method: "GET" | "POST" | "PUT" | "DELETE"
@@ -57,14 +67,27 @@ export async function clinicallRequest(method, path, data) {
   } catch (e) {
     // Aqui pega exatamente esse ENOTFOUND e devolve claro
     const msg = e?.message || String(e);
-    throw new Error(`Fetch failed for ${url} :: ${msg}`);
+    throw new HttpError({
+      status: 502,
+      code: "CRM_ERROR",
+      message: `Fetch failed for ${url} :: ${msg}`,
+      details: { url, error: msg },
+    });
   }
 
   const payload = await readJsonSafe(resp);
 
   if (!resp.ok) {
-    const details = typeof payload === "string" ? payload : JSON.stringify(payload);
-    throw new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
+    const message =
+      payload?.message ||
+      payload?.error ||
+      (typeof payload === "string" ? payload : resp.statusText);
+    throw new HttpError({
+      status: resp.status,
+      code: payload?.code,
+      message,
+      details: payload,
+    });
   }
 
   return payload;
