@@ -1,10 +1,12 @@
+// src/routes/schedules.routes.js
 import express from "express";
 import clinicall from "../clinicall/client.js";
 
 const router = express.Router();
 
 /**
- * search
+ * SEARCH (agenda / agendamentos)
+ * Upstream: POST /partners/schedule/v2/search
  */
 router.post("/search", async (req, res, next) => {
   try {
@@ -12,7 +14,6 @@ router.post("/search", async (req, res, next) => {
       method: "POST",
       body: req.body,
     });
-
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -20,16 +21,15 @@ router.post("/search", async (req, res, next) => {
 });
 
 /**
- * status list passthrough
+ * CREATE (criar agendamento)
+ * Upstream: POST /partners/schedule
  */
-router.get("/status/:type/simpleList", async (req, res, next) => {
+router.post("/", async (req, res, next) => {
   try {
-    const { type } = req.params;
-
-    const data = await clinicall.request(`/partners/status/${type}/simpleList`, {
-      method: "GET",
+    const data = await clinicall.request("/partners/schedule", {
+      method: "POST",
+      body: req.body,
     });
-
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -37,33 +37,93 @@ router.get("/status/:type/simpleList", async (req, res, next) => {
 });
 
 /**
- * confirm via patientStatus = C
+ * UPDATE / RESCHEDULE (reagendar / atualizar)
+ * Upstream: PUT /partners/schedule
+ *
+ * Observação:
+ * - Clinicall costuma receber o "id" no body (ex: { id: 123, started: ..., ended: ... })
+ * - Por isso usamos PUT no collection.
+ */
+router.put("/", async (req, res, next) => {
+  try {
+    const data = await clinicall.request("/partners/schedule", {
+      method: "PUT",
+      body: req.body,
+    });
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * CONFIRM (confirmar presença)
+ * Preferência:
+ * - POST /partners/scheduleConfirm  body: { scheduleId }
+ * Fallback:
+ * - POST /partners/:id/patientStatus/C
  */
 router.post("/:id/confirm", async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const data = await clinicall.request(`/partners/${id}/patientStatus/C`, {
-      method: "POST",
-    });
-
-    res.json({ ok: true, data });
+    try {
+      const data = await clinicall.request("/partners/scheduleConfirm", {
+        method: "POST",
+        body: { scheduleId: Number(id) || id },
+      });
+      return res.json({ ok: true, data });
+    } catch (_e) {
+      // fallback antigo
+      const data = await clinicall.request(`/partners/${id}/patientStatus/C`, {
+        method: "POST",
+      });
+      return res.json({ ok: true, data });
+    }
   } catch (err) {
     next(err);
   }
 });
 
 /**
- * cancel via patientStatus = B
+ * CANCEL (cancelar)
+ * Preferência:
+ * - POST /partners/scheduleCancel  body: { scheduleId }
+ * Fallback:
+ * - POST /partners/:id/patientStatus/B
  */
 router.post("/:id/cancel", async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const data = await clinicall.request(`/partners/${id}/patientStatus/B`, {
-      method: "POST",
-    });
+    try {
+      const data = await clinicall.request("/partners/scheduleCancel", {
+        method: "POST",
+        body: { scheduleId: Number(id) || id },
+      });
+      return res.json({ ok: true, data });
+    } catch (_e) {
+      // fallback antigo
+      const data = await clinicall.request(`/partners/${id}/patientStatus/B`, {
+        method: "POST",
+      });
+      return res.json({ ok: true, data });
+    }
+  } catch (err) {
+    next(err);
+  }
+});
 
+/**
+ * STATUS simpleList passthrough
+ * Upstream: GET /partners/status/:type/simpleList
+ */
+router.get("/status/:type/simpleList", async (req, res, next) => {
+  try {
+    const { type } = req.params;
+    const data = await clinicall.request(`/partners/status/${type}/simpleList`, {
+      method: "GET",
+    });
     res.json({ ok: true, data });
   } catch (err) {
     next(err);

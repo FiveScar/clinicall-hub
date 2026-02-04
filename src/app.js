@@ -6,9 +6,12 @@ import patientsRouter from "./routes/patients.routes.js";
 import schedulesRouter from "./routes/schedules.routes.js";
 import professionalsRouter from "./routes/professionals.routes.js";
 import companiesRouter from "./routes/companies.routes.js";
+import insurancesRouter from "./routes/insurances.routes.js";
+import specialitiesRouter from "./routes/specialities.routes.js";
+import proceduresRouter from "./routes/procedures.routes.js";
 
 import buildRoutesRouter from "./routes/__routes.routes.js";
-import rpcRouter from "./routes/rpc.routes.js"; // 👈 ADICIONADO
+import rpcRouter from "./routes/rpc.routes.js";
 
 const app = express();
 
@@ -39,14 +42,17 @@ app.get("/health", (_req, res) =>
 // ✅ lista de rotas
 app.use("/__routes", buildRoutesRouter(app));
 
-// ✅ RPC (antes das rotas normais ou depois, tanto faz)
-app.use("/rpc", rpcRouter); // 👈 AQUI
+// ✅ RPC
+app.use("/rpc", rpcRouter);
 
 // rotas do hub
 app.use("/patients", patientsRouter);
 app.use("/schedules", schedulesRouter);
 app.use("/professionals", professionalsRouter);
 app.use("/companies", companiesRouter);
+app.use("/insurances", insurancesRouter);
+app.use("/specialities", specialitiesRouter);
+app.use("/procedures", proceduresRouter);
 
 // handler de erro padrão
 app.use((err, req, res, _next) => {

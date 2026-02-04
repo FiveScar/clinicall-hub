@@ -1,6 +1,18 @@
-import { Router } from "express";
-const router = Router();
+import express from "express";
+import clinicall from "../clinicall/client.js";
 
-router.get("/", (_req, res) => res.json({ ok: true, module: "companies", status: "todo" }));
+const router = express.Router();
+
+router.post("/search", async (req, res, next) => {
+  try {
+    const data = await clinicall.request("/partners/insurance/search", {
+      method: "POST",
+      body: req.body,
+    });
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

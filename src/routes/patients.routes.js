@@ -1,9 +1,8 @@
 // src/routes/patients.routes.js
-import { Router } from "express";
-import { asyncHandler } from "../utils/asyncHandler.js";
+import express from "express";
 import clinicall from "../clinicall/client.js";
 
-const router = Router();
+const router = express.Router();
 
 function isClinicall404(err) {
   const msg = err?.message || "";
@@ -29,14 +28,8 @@ async function fetchBirthdayTodayMonth({ month, day }) {
       return await clinicall.request(path, { method: "GET" });
     } catch (e) {
       lastErr = e;
-
-      // 404 -> tenta próxima variação
       if (isClinicall404(e)) continue;
-
-      // 500 -> não adianta tentar variação, a API tá quebrando mesmo
       if (isClinicall500(e)) throw e;
-
-      // qualquer outro erro -> sobe
       throw e;
     }
   }
@@ -45,11 +38,11 @@ async function fetchBirthdayTodayMonth({ month, day }) {
 }
 
 /**
- * POST /patients/search
+ * SEARCH
+ * Upstream: POST /partners/patient/search
  */
-router.post(
-  "/search",
-  asyncHandler(async (req, res) => {
+router.post("/search", async (req, res, next) => {
+  try {
     const payload = {
       argument: req.body?.argument ?? "",
       page: req.body?.page ?? 0,
@@ -63,132 +56,126 @@ router.post(
       body: payload,
     });
 
-    res.json(data);
-  })
-);
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
- * POST /patients
+ * CREATE
+ * Upstream: POST /partners/patient
  */
-router.post(
-  "/",
-  asyncHandler(async (req, res) => {
-    const payload = {
-      ...req.body,
-      name: req.body?.name,
-      cpf: req.body?.cpf,
-      phoneStandart: req.body?.phoneStandart,
-      birthday: req.body?.birthday,
-    };
-
+router.post("/", async (req, res, next) => {
+  try {
     const data = await clinicall.request("/partners/patient", {
       method: "POST",
-      body: payload,
+      body: req.body,
     });
-
-    res.json(data);
-  })
-);
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
- * PUT /patients/:patientId
+ * GET by id
+ * Upstream: GET /partners/patient/:patientId
  */
-router.put(
-  "/:patientId",
-  asyncHandler(async (req, res) => {
-    const { patientId } = req.params;
+router.get("/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const data = await clinicall.request(`/partners/patient/${id}`, {
+      method: "GET",
+    });
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    const data = await clinicall.request(`/partners/patient/${patientId}`, {
+/**
+ * UPDATE
+ * Upstream: PUT /partners/patient/:patientId
+ */
+router.put("/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const data = await clinicall.request(`/partners/patient/${id}`, {
       method: "PUT",
       body: req.body,
     });
-
-    res.json(data);
-  })
-);
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
- * DELETE /patients/:patientId
+ * DELETE
+ * Upstream: DELETE /partners/patient/:patientId
  */
-router.delete(
-  "/:patientId",
-  asyncHandler(async (req, res) => {
-    const { patientId } = req.params;
-
-    const data = await clinicall.request(`/partners/patient/${patientId}`, {
+router.delete("/:id", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const data = await clinicall.request(`/partners/patient/${id}`, {
       method: "DELETE",
     });
-
-    res.json(data);
-  })
-);
-
-/**
- * GET /patients/:patientId
- */
-router.get(
-  "/:patientId",
-  asyncHandler(async (req, res) => {
-    const { patientId } = req.params;
-
-    const data = await clinicall.request(`/partners/patient/${patientId}`, {
-      method: "GET",
-    });
-
-    res.json(data);
-  })
-);
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * GET /patients/birthday/today-month/:month/:day
- * - mantém sua rota do HUB
- * - retorna 502 limpo quando Clinicall dá SYSTEM_EXCEPTION
+ * - Retorna 502 limpo quando Clinicall dá SYSTEM_EXCEPTION
  */
-router.get(
-  "/birthday/today-month/:month/:day",
-  asyncHandler(async (req, res) => {
+router.get("/birthday/today-month/:month/:day", async (req, res, next) => {
+  try {
     const { month, day } = req.params;
 
     try {
       const data = await fetchBirthdayTodayMonth({ month, day });
-      return res.json(data);
+      return res.json({ ok: true, data });
     } catch (e) {
       if (isClinicall500(e)) {
         return res.status(502).json({
           ok: false,
           error: "clinicall_birthday_unstable",
-          details:
-            "Clinicall retornou SYSTEM_EXCEPTION para birthday-person. Endpoint instável no tenant.",
+          details: "Clinicall retornou SYSTEM_EXCEPTION para birthday-person. Endpoint instável no tenant.",
         });
       }
       throw e;
     }
-  })
-);
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * GET /patients/birthday/today-month/:day
  */
-router.get(
-  "/birthday/today-month/:day",
-  asyncHandler(async (req, res) => {
+router.get("/birthday/today-month/:day", async (req, res, next) => {
+  try {
     const { day } = req.params;
 
     try {
       const data = await fetchBirthdayTodayMonth({ month: "0", day });
-      return res.json(data);
+      return res.json({ ok: true, data });
     } catch (e) {
       if (isClinicall500(e)) {
         return res.status(502).json({
           ok: false,
           error: "clinicall_birthday_unstable",
-          details:
-            "Clinicall retornou SYSTEM_EXCEPTION para birthday-person. Endpoint instável no tenant.",
+          details: "Clinicall retornou SYSTEM_EXCEPTION para birthday-person. Endpoint instável no tenant.",
         });
       }
       throw e;
     }
-  })
-);
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;
