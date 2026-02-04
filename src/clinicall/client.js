@@ -16,10 +16,15 @@ function joinUrl(base, path) {
 async function readJsonSafe(resp) {
   const text = await resp.text();
   if (!text) return null;
-  try { return JSON.parse(text); } catch { return text; }
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 async function doFetch(method, path, data) {
+  const m = String(method || "GET").toUpperCase();
   const url = joinUrl(BASE_URL, path);
 
   const headers = {
@@ -27,11 +32,12 @@ async function doFetch(method, path, data) {
     "X-Auth-Token": AUTH_TOKEN,
   };
 
+  // dependendo do tenant, pode ser necessário
   if (TENANT_ID) headers["X-Tenantid"] = TENANT_ID;
 
-  const init = { method, headers };
+  const init = { method: m, headers };
 
-  if (method !== "GET" && method !== "HEAD" && data !== undefined) {
+  if (m !== "GET" && m !== "HEAD" && data !== undefined) {
     init.body = JSON.stringify(data);
   }
 
@@ -39,9 +45,7 @@ async function doFetch(method, path, data) {
   const payload = await readJsonSafe(resp);
 
   if (!resp.ok) {
-    const details = typeof payload === "string"
-      ? payload
-      : JSON.stringify(payload);
+    const details = typeof payload === "string" ? payload : JSON.stringify(payload);
     throw new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
   }
 
@@ -53,7 +57,7 @@ export async function clinicallRequest(method, path, data) {
 }
 
 export default {
-  request(path, opts = {}) {
+  async request(path, opts = {}) {
     const method = (opts.method || "GET").toUpperCase();
     return clinicallRequest(method, path, opts.body);
   },

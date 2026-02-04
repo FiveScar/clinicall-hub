@@ -1,59 +1,68 @@
-// src/routes/professionals.routes.js
+// src/routes/orders.routes.js
 import express from "express";
-import * as clinicallModule from "../clinicall/client.js";
-
-const clinicall = clinicallModule.default ?? clinicallModule;
+import clinicall from "../clinicall/client.js";
 
 const router = express.Router();
 
-function normalizeProfessional(professional = {}) {
-  return {
-    id: professional.id ?? professional.performerId ?? professional.professionalId ?? null,
-    name: professional.name ?? professional.fullName ?? professional.performerName ?? "",
-    speciality:
-      professional.speciality ??
-      professional.specialty ??
-      professional.specialization ??
-      professional.specialityName ??
-      null,
-    active: professional.active ?? professional.enabled ?? professional.isActive ?? null,
-  };
-}
-
-function normalizeProfessionalResponse(data) {
-  if (Array.isArray(data)) {
-    return data.map(normalizeProfessional);
-  }
-
-  if (data?.content && Array.isArray(data.content)) {
-    return { ...data, content: data.content.map(normalizeProfessional) };
-  }
-
-  if (data && typeof data === "object") {
-    return normalizeProfessional(data);
-  }
-
-  return data;
-}
-
-router.post("/search", async (req, res, next) => {
+/**
+ * POST /orders
+ * Cria uma nova OS
+ * -> Clinicall: POST /partners/order
+ */
+router.post("/", async (req, res, next) => {
   try {
-    const data = await clinicall.request("/partners/performer/search", {
+    const data = await clinicall.request("/partners/order", {
       method: "POST",
       body: req.body,
     });
-    res.json({ ok: true, data: normalizeProfessionalResponse(data) });
+    res.json({ ok: true, data });
   } catch (err) {
     next(err);
   }
 });
 
-router.get("/:id", async (req, res, next) => {
+/**
+ * POST /orders/schedule?scheduleId=123
+ * Cria uma OS a partir da agenda
+ * -> Clinicall: POST /partners/order/schedule?scheduleId=
+ */
+router.post("/schedule", async (req, res, next) => {
   try {
-    const data = await clinicall.request(`/partners/performer/${req.params.id}`, {
+    const { scheduleId } = req.query;
+
+    if (!scheduleId) {
+      return res.status(400).json({
+        ok: false,
+        error: "missing_scheduleId",
+        details: "Envie scheduleId na querystring: /orders/schedule?scheduleId=123",
+      });
+    }
+
+    const data = await clinicall.request(
+      `/partners/order/schedule?scheduleId=${encodeURIComponent(String(scheduleId))}`,
+      { method: "POST" }
+    );
+
+    res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /orders/:orderId
+ * Emite Guia TISS (retorna name + pdf base64)
+ * -> Clinicall: GET /partners/order/:orderId
+ */
+router.get("/:orderId", async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+
+    const data = await clinicall.request(`/partners/order/${orderId}`, {
       method: "GET",
     });
-    res.json({ ok: true, data: normalizeProfessionalResponse(data) });
+
+    res.json({ ok: true, data });
   } catch (err) {
     next(err);
   }
