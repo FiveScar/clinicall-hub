@@ -51,7 +51,7 @@ async function patientSearchPage({ argument = "", page = 0, sizePage = 50 }) {
 async function scanPatientByPhone(targetDigits, { maxPages = 15, sizePage = 50 } = {}) {
   // SCAN: argument vazio -> lista paginada; filtra localmente por telefone
   for (let page = 0; page < maxPages; page++) {
-    const resp = await patientSearchPage({ argument: "", page, sizePage });
+    const resp = await patientSearchPage({ argument: "a", page, sizePage });
     const patients = Array.isArray(resp?.content) ? resp.content : [];
 
     for (const p of patients) {
