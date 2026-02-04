@@ -19,6 +19,16 @@ function assertEnv() {
   }
 }
 
+// Erro HTTP normalizado (útil pro handler diferenciar)
+export class HttpError extends Error {
+  constructor(status, message, details = null) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.details = details;
+  }
+}
+
 // cache simples em memória
 let cachedToken = null;
 let tokenCreatedAt = null;
@@ -36,7 +46,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
     const resp = await fetch(url, { ...options, signal: controller.signal });
     return resp;
   } catch (err) {
-    // deixa o erro MUITO mais fácil de entender
     const causeMsg = err?.cause?.message ? ` :: ${err.cause.message}` : "";
     const msg =
       err?.name === "AbortError"
@@ -73,7 +82,11 @@ export async function authenticate() {
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => "");
-    throw new Error(`Auth failed: ${resp.status} ${resp.statusText} ${text}`);
+    throw new HttpError(
+      resp.status,
+      `Auth failed: ${resp.status} ${resp.statusText}`,
+      text || null
+    );
   }
 
   const token = resp.headers.get("x-auth-token");
@@ -126,7 +139,7 @@ export async function clinicallRequest(
 
     if (resp.status === 401) {
       const text = await resp.text().catch(() => "");
-      throw new Error(`Unauthorized even after reauth. ${text}`);
+      throw new HttpError(401, "Unauthorized even after reauth.", text || null);
     }
   }
 
@@ -136,10 +149,13 @@ export async function clinicallRequest(
     : await resp.text();
 
   if (!resp.ok) {
-    throw new Error(
-      `Clinicall error ${resp.status}: ${
-        typeof data === "string" ? data : JSON.stringify(data)
-      }`
+    const details =
+      typeof data === "string" ? data : JSON.stringify(data);
+
+    throw new HttpError(
+      resp.status,
+      `Clinicall error ${resp.status}: ${resp.statusText || "Request failed"}`,
+      details || null
     );
   }
 

@@ -9,6 +9,7 @@ import companiesRouter from "./routes/companies.routes.js";
 import insurancesRouter from "./routes/insurances.routes.js";
 import specialitiesRouter from "./routes/specialities.routes.js";
 import proceduresRouter from "./routes/procedures.routes.js";
+import ordersRouter from "./routes/orders.routes.js";
 
 import buildRoutesRouter from "./routes/__routes.routes.js";
 import rpcRouter from "./routes/rpc.routes.js";
@@ -53,6 +54,7 @@ app.use("/companies", companiesRouter);
 app.use("/insurances", insurancesRouter);
 app.use("/specialities", specialitiesRouter);
 app.use("/procedures", proceduresRouter);
+app.use("/orders", ordersRouter);
 
 // handler de erro padrão
 app.use((err, req, res, _next) => {
