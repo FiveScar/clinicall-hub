@@ -10,19 +10,18 @@ export async function runRPC(op, data = {}) {
   try {
     // -------------------------
     // PATIENT.SEARCH
-    // data: { argument }
     // -------------------------
     if (op === "patient.search") {
-      const r = await clinicall.request("/patients/search", {
+      const r = await clinicall.request("/partners/patient/search", {
         method: "POST",
         body: data,
       });
 
-      const list = r?.content || [];
+      const list = Array.isArray(r?.content) ? r.content : [];
 
       if (!list.length) {
         return contract.fallback({
-          message: "Não encontrei seu cadastro.",
+          message: "Não encontrei seu cadastro. Me diga seu nome completo.",
           nextAction: "create_patient",
         });
       }
@@ -40,7 +39,6 @@ export async function runRPC(op, data = {}) {
 
     // -------------------------
     // PROFESSIONAL.SEARCH
-    // data: { argument, page, sizePage, fieldSort, sortDirection }
     // -------------------------
     if (op === "professional.search") {
       const r = await clinicall.request("/professionals/search", {
@@ -48,7 +46,7 @@ export async function runRPC(op, data = {}) {
         body: data,
       });
 
-      const list = r?.content || [];
+      const list = Array.isArray(r?.content) ? r.content : [];
 
       if (!list.length) {
         return contract.fallback({
@@ -69,7 +67,6 @@ export async function runRPC(op, data = {}) {
 
     // -------------------------
     // SCHEDULE.SEARCH
-    // data: { ... filtros do seu backend ... }
     // -------------------------
     if (op === "schedule.search") {
       const r = await clinicall.request("/schedule/search", {
@@ -77,17 +74,15 @@ export async function runRPC(op, data = {}) {
         body: data,
       });
 
-      const list = r?.content || [];
+      const list = Array.isArray(r?.content) ? r.content : [];
 
       if (!list.length) {
         return contract.fallback({
-          message: "Não encontrei horários disponíveis nesse período. Vou ampliar a busca.",
+          message: "Não encontrei horários disponíveis. Vou ampliar a busca.",
           nextAction: "retry_schedule",
         });
       }
 
-      // OBS: como o formato do item de agenda pode variar por tenant,
-      // eu só monto um label seguro com o que existir.
       return contract.ok({
         options: topOptions(list, (s) => {
           const date = s.date || s.started || s.startDate || s.day || "";
@@ -107,17 +102,14 @@ export async function runRPC(op, data = {}) {
       });
     }
 
-    // -------------------------
-    // DEFAULT
-    // -------------------------
     return contract.error("Operação não suportada");
   } catch (err) {
-  console.error("RPC ENGINE ERROR:");
-  console.error(err?.message);
-  console.error(err?.stack);
+    console.error("RPC ENGINE ERROR:");
+    console.error(err?.message);
+    console.error(err?.stack);
 
-  return {
-    status: "error",
-    message: err?.message || "Instabilidade temporária"
-  };
+    return contract.error(
+      err?.message || "Instabilidade temporária"
+    );
+  }
 }
