@@ -1,8 +1,9 @@
+// src/orchestrator/contract.js
 export function ok({ data = {}, options = [], nextAction = "done", message } = {}) {
   return { status: "ok", data, options, nextAction, message };
 }
 
-export function fallback({ message, options = [], nextAction = "retry" }) {
+export function fallback({ message, options = [], nextAction = "retry" } = {}) {
   return { status: "fallback", message, options, nextAction };
 }
 
