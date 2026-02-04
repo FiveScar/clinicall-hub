@@ -15,7 +15,10 @@ function joinUrl(base, path) {
 }
 
 function safeTrimToken(t) {
-  return String(t || "").trim().replace(/^<|>$/g, "").replace(/^"|"$/g, "");
+  return String(t || "")
+    .trim()
+    .replace(/^<|>$/g, "")
+    .replace(/^"|"$/g, "");
 }
 
 function decodeJwtExp(token) {
@@ -57,12 +60,11 @@ async function authenticate() {
   }
 
   const url = joinUrl(BASE_URL, AUTH_PATH);
+
+  // Auth NÃO usa token. Só tenant + content-type.
   const headers = { "Content-Type": "application/json" };
-  if (TENANT_ID) {
-    headers["X-Tenantid"] = TENANT_ID;
-    headers["X-TenantId"] = TENANT_ID;
-    headers["X-TenantID"] = TENANT_ID;
-  }
+  // Clinicall é chatinho: padroniza EXATAMENTE X-Tenantid
+  if (TENANT_ID) headers["X-Tenantid"] = TENANT_ID;
 
   const resp = await fetch(url, {
     method: "POST",
@@ -108,14 +110,10 @@ export async function clinicallRequest(method, path, data) {
 
   const headers = { "Content-Type": "application/json" };
 
-  // tenant
-  if (TENANT_ID) {
-    headers["X-Tenantid"] = TENANT_ID;
-    headers["X-TenantId"] = TENANT_ID;
-    headers["X-TenantID"] = TENANT_ID;
-  }
+  // tenant (padronizado: somente X-Tenantid)
+  if (TENANT_ID) headers["X-Tenantid"] = TENANT_ID;
 
-  // auth
+  // auth (sempre X-Auth-Token)
   const token = await getAuthToken();
   if (token) headers["X-Auth-Token"] = token;
 
