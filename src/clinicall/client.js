@@ -1,19 +1,11 @@
 // src/clinicall/client.js
-
 const BASE_URL = (process.env.CLINICALL_BASE_URL || "").trim();
 const TENANT_ID = (process.env.CLINICALL_TENANTID || "").trim();
+
+const FIXED_TOKEN = (process.env.CLINICALL_AUTH_TOKEN || "").trim(); // opcional
 const LOGIN = (process.env.CLINICALL_LOGIN || "").trim();
 const PASSWORD = (process.env.CLINICALL_PASSWORD || "").trim();
-
-// conforme doc: POST /authenticate
 const AUTH_PATH = (process.env.CLINICALL_AUTH_PATH || "/authenticate").trim();
-
-// timeout padrão
-const TIMEOUT_MS = Number(process.env.CLINICALL_TIMEOUT_MS || 15000);
-
-// cache em memória
-let cachedToken = "";
-let authInFlight = null;
 
 function joinUrl(base, path) {
   const b = String(base || "").replace(/\/+$/, "");
@@ -22,15 +14,32 @@ function joinUrl(base, path) {
   return `${b}/${p}`;
 }
 
-function assertAuthEnv() {
-  if (!BASE_URL) throw new Error("Missing CLINICALL_BASE_URL env");
-  if (!TENANT_ID) throw new Error("Missing CLINICALL_TENANTID env");
-  if (!LOGIN) throw new Error("Missing CLINICALL_LOGIN env");
-  if (!PASSWORD) throw new Error("Missing CLINICALL_PASSWORD env");
+function safeTrimToken(t) {
+  return String(t || "").trim().replace(/^<|>$/g, "").replace(/^"|"$/g, "");
+}
+
+function decodeJwtExp(token) {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    if (typeof payload?.exp === "number") return payload.exp * 1000;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function readText(resp) {
+  try {
+    return await resp.text();
+  } catch {
+    return "";
+  }
 }
 
 async function readJsonSafe(resp) {
-  const text = await resp.text();
+  const text = await readText(resp);
   if (!text) return null;
   try {
     return JSON.parse(text);
@@ -39,31 +48,26 @@ async function readJsonSafe(resp) {
   }
 }
 
-async function fetchWithTimeout(url, init, timeoutMs = TIMEOUT_MS) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(t);
-  }
-}
+let cachedToken = null;
+let cachedTokenExpMs = null;
 
 async function authenticate() {
-  assertAuthEnv();
+  if (!LOGIN || !PASSWORD) {
+    throw new Error("Missing CLINICALL_LOGIN/CLINICALL_PASSWORD env for auto-auth");
+  }
 
   const url = joinUrl(BASE_URL, AUTH_PATH);
+  const headers = { "Content-Type": "application/json" };
+  if (TENANT_ID) {
+    headers["X-Tenantid"] = TENANT_ID;
+    headers["X-TenantId"] = TENANT_ID;
+    headers["X-TenantID"] = TENANT_ID;
+  }
 
-  const resp = await fetchWithTimeout(url, {
+  const resp = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Tenantid": TENANT_ID, // doc usa X-Tenantid
-    },
-    body: JSON.stringify({
-      login: LOGIN,
-      password: PASSWORD,
-    }),
+    headers,
+    body: JSON.stringify({ login: LOGIN, password: PASSWORD }),
   });
 
   const payload = await readJsonSafe(resp);
@@ -73,51 +77,47 @@ async function authenticate() {
     throw new Error(`Clinicall auth error ${resp.status}: ${resp.statusText} :: ${details}`);
   }
 
-  const token =
-    resp.headers.get("x-auth-token") ||
-    resp.headers.get("X-Auth-Token") ||
-    resp.headers.get("authorization") ||
-    resp.headers.get("Authorization");
+  const token = safeTrimToken(resp.headers.get("x-auth-token"));
+  if (!token) throw new Error("Clinicall auth succeeded but x-auth-token header is missing");
 
-  if (!token) {
-    throw new Error(
-      "Clinicall auth succeeded but x-auth-token header was not present (expected token in response headers)"
-    );
+  cachedToken = token;
+  cachedTokenExpMs = decodeJwtExp(token);
+  return token;
+}
+
+async function getAuthToken() {
+  if (FIXED_TOKEN) return safeTrimToken(FIXED_TOKEN);
+
+  // se tem cache e ainda não expirou (com folga de 60s), reutiliza
+  if (cachedToken) {
+    if (!cachedTokenExpMs) return cachedToken;
+    if (Date.now() < cachedTokenExpMs - 60_000) return cachedToken;
   }
 
-  cachedToken = token.trim();
-  return cachedToken;
+  return authenticate();
 }
 
-async function getToken() {
-  // token em cache
-  if (cachedToken) return cachedToken;
-
-  // evita várias autenticações simultâneas
-  if (authInFlight) return authInFlight;
-
-  authInFlight = authenticate().finally(() => {
-    authInFlight = null;
-  });
-
-  return authInFlight;
-}
-
-async function clinicallFetch(method, path, data, { forceReauth = false } = {}) {
-  assertAuthEnv();
-
-  if (forceReauth) cachedToken = "";
-
-  const token = await getToken();
-
+/**
+ * clinicallRequest(method, path, data?)
+ * - method: "GET" | "POST" | "PUT" | "DELETE"
+ * - path: "/partners/patient/search" etc
+ */
+export async function clinicallRequest(method, path, data) {
   const m = String(method || "GET").toUpperCase();
   const url = joinUrl(BASE_URL, path);
 
-  const headers = {
-    "Content-Type": "application/json",
-    "X-Auth-Token": token,
-    "X-Tenantid": TENANT_ID,
-  };
+  const headers = { "Content-Type": "application/json" };
+
+  // tenant
+  if (TENANT_ID) {
+    headers["X-Tenantid"] = TENANT_ID;
+    headers["X-TenantId"] = TENANT_ID;
+    headers["X-TenantID"] = TENANT_ID;
+  }
+
+  // auth
+  const token = await getAuthToken();
+  if (token) headers["X-Auth-Token"] = token;
 
   const init = { method: m, headers };
 
@@ -125,37 +125,43 @@ async function clinicallFetch(method, path, data, { forceReauth = false } = {}) 
     init.body = JSON.stringify(data);
   }
 
-  const resp = await fetchWithTimeout(url, init);
+  let resp;
+  try {
+    resp = await fetch(url, init);
+  } catch (e) {
+    const msg = e?.message || String(e);
+    throw new Error(`Fetch failed for ${url} :: ${msg}`);
+  }
+
+  // retry 1x em 401 (token expirou)
+  if (resp.status === 401 && !FIXED_TOKEN) {
+    cachedToken = null;
+    cachedTokenExpMs = null;
+
+    const retryToken = await getAuthToken();
+    init.headers["X-Auth-Token"] = retryToken;
+
+    resp = await fetch(url, init);
+  }
+
   const payload = await readJsonSafe(resp);
 
   if (!resp.ok) {
     const details = typeof payload === "string" ? payload : JSON.stringify(payload);
-    const err = new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
-    err.status = resp.status;
-    err.payload = payload;
-    throw err;
+    throw new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
   }
 
   return payload;
 }
 
-// compatibilidade: usado nas rotas
-export async function clinicallRequest(method, path, data) {
-  try {
-    return await clinicallFetch(method, path, data);
-  } catch (err) {
-    // se 401, reautentica e tenta 1 vez
-    if (err?.status === 401 || String(err?.message || "").includes(" 401:")) {
-      return clinicallFetch(method, path, data, { forceReauth: true });
-    }
-    throw err;
-  }
-}
-
-// compatibilidade com import default (clinicall.request)
-export default {
-  async request(path, opts = {}) {
-    const method = (opts.method || "GET").toUpperCase();
-    return clinicallRequest(method, path, opts.body);
+/**
+ * Compatibilidade: clinicall.request(path, { method, body })
+ * - usado pelas rotas antigas que importam default
+ */
+const clinicall = {
+  async request(path, { method = "GET", body } = {}) {
+    return clinicallRequest(method, path, body);
   },
 };
+
+export default clinicall;

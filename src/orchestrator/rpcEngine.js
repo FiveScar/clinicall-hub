@@ -6,52 +6,63 @@ function topOptions(list, mapper, limit = 3) {
   return (Array.isArray(list) ? list : []).slice(0, limit).map(mapper);
 }
 
+function onlyDigits(v) {
+  return String(v ?? "").replace(/\D+/g, "");
+}
+
+function normalizeBRPhoneDigits(raw) {
+  let d = onlyDigits(raw);
+  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
+  return d;
+}
+
 export async function runRPC(op, data = {}) {
   try {
     // -------------------------
     // PATIENT.SEARCH
     // -------------------------
     if (op === "patient.search") {
-  const body = {
-    argument: data?.argument ?? "",
-    page: Number.isFinite(data?.page) ? data.page : 0,
-    sizePage: Number.isFinite(data?.sizePage) ? data.sizePage : 25,
-    fieldSort: data?.fieldSort ?? "name",
-    sortDirection: data?.sortDirection ?? "asc",
-  };
+      const argumentRaw = data?.argument ?? "";
+      const argument = normalizeBRPhoneDigits(argumentRaw) || String(argumentRaw || "");
 
-  // chama a rota interna do hub
-  const r = await clinicall.request("/patients/search", {
-    method: "POST",
-    body,
-  });
+      const body = {
+        argument,
+        page: Number.isFinite(data?.page) ? data.page : 0,
+        sizePage: Number.isFinite(data?.sizePage) ? data.sizePage : 25,
+        fieldSort: data?.fieldSort ?? "name",
+        sortDirection: data?.sortDirection ?? "asc",
+      };
 
-  const list = Array.isArray(r?.content) ? r.content : [];
+      const r = await clinicall.request("/partners/patient/search", {
+        method: "POST",
+        body,
+      });
 
-  if (!list.length) {
-    return contract.fallback({
-      message: "Não encontrei seu cadastro. Me diga seu nome completo.",
-      nextAction: "create_patient",
-    });
-  }
+      const list = Array.isArray(r?.content) ? r.content : [];
 
-  const patient = list[0];
+      if (!list.length) {
+        return contract.fallback({
+          message: "Não encontrei seu cadastro. Me diga seu nome completo.",
+          nextAction: "create_patient",
+        });
+      }
 
-  return contract.ok({
-    data: {
-      id: patient.id ?? null,
-      name: patient.name ?? "",
-    },
-    nextAction: "patient_found",
-  });
-}
+      const patient = list[0];
 
+      return contract.ok({
+        data: {
+          id: patient.id ?? null,
+          name: patient.name ?? "",
+        },
+        nextAction: "patient_found",
+      });
+    }
 
     // -------------------------
-    // PROFESSIONAL.SEARCH
+    // PROFESSIONAL.SEARCH (mantém como está por enquanto)
     // -------------------------
     if (op === "professional.search") {
-      const r = await clinicall.request("/professionals/search", {
+      const r = await clinicall.request("/partners/performer/search", {
         method: "POST",
         body: data,
       });
@@ -67,19 +78,18 @@ export async function runRPC(op, data = {}) {
 
       return contract.ok({
         options: topOptions(list, (p) => ({
-          id: p.id ?? null,
-          label: p.name ?? "Profissional",
-          meta: { specialityId: p.specialityId ?? null },
+          id: p.id ?? p.performerId ?? null,
+          label: p.name ?? p.fullName ?? "Profissional",
         })),
         nextAction: "choose_professional",
       });
     }
 
     // -------------------------
-    // SCHEDULE.SEARCH
+    // SCHEDULE.SEARCH (mantém como está por enquanto)
     // -------------------------
     if (op === "schedule.search") {
-      const r = await clinicall.request("/schedule/search", {
+      const r = await clinicall.request("/partners/schedule/v2/search", {
         method: "POST",
         body: data,
       });
@@ -102,10 +112,6 @@ export async function runRPC(op, data = {}) {
           return {
             id: s.id ?? s.scheduleId ?? null,
             label,
-            meta: {
-              performerId: s.performerId ?? null,
-              companyId: s.companyId ?? null,
-            },
           };
         }),
         nextAction: "choose_schedule",
@@ -114,12 +120,12 @@ export async function runRPC(op, data = {}) {
 
     return contract.error("Operação não suportada");
   } catch (err) {
-    console.error("RPC ENGINE ERROR:");
-    console.error(err?.message);
-    console.error(err?.stack);
+    console.error("RPC ENGINE ERROR:", err?.message || err);
+    if (err?.stack) console.error(err.stack);
 
-    return contract.error(
-      err?.message || "Instabilidade temporária"
-    );
+    return {
+      status: "error",
+      message: err?.message || "Instabilidade temporária",
+    };
   }
 }
