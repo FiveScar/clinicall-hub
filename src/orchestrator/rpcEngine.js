@@ -19,44 +19,80 @@ function normalizeBRPhoneDigits(raw) {
 export async function runRPC(op, data = {}) {
   try {
     // -------------------------
-    // PATIENT.SEARCH
-    // -------------------------
-    if (op === "patient.search") {
-      const argumentRaw = data?.argument ?? "";
-      const argument = normalizeBRPhoneDigits(argumentRaw) || String(argumentRaw || "");
+// PATIENT.SEARCH (turbo)
+// -------------------------
+if (op === "patient.search") {
+  const argumentRaw = data?.argument ?? "";
+  const argumentDigits = normalizeBRPhoneDigits(argumentRaw);
 
-      const body = {
-        argument,
-        page: Number.isFinite(data?.page) ? data.page : 0,
-        sizePage: Number.isFinite(data?.sizePage) ? data.sizePage : 25,
-        fieldSort: data?.fieldSort ?? "name",
-        sortDirection: data?.sortDirection ?? "asc",
-      };
+  const baseBody = {
+    argument: argumentDigits || String(argumentRaw || ""),
+    page: 0,
+    sizePage: 25,
+    fieldSort: "name",
+    sortDirection: "asc",
+  };
 
-      const r = await clinicall.request("/partners/patient/search", {
+  // 1) tenta search normal
+  let r = await clinicall.request("/partners/patient/search", {
+    method: "POST",
+    body: baseBody,
+  });
+
+  let list = Array.isArray(r?.content) ? r.content : [];
+
+  // 2) se vazio → scan por telefone
+  if (!list.length && argumentDigits.length >= 10) {
+    const target = argumentDigits;
+
+    for (let page = 0; page < 10; page++) {
+      const scan = await clinicall.request("/partners/patient/search", {
         method: "POST",
-        body,
+        body: { ...baseBody, argument: "", page },
       });
 
-      const list = Array.isArray(r?.content) ? r.content : [];
+      const patients = Array.isArray(scan?.content) ? scan.content : [];
 
-      if (!list.length) {
-        return contract.fallback({
-          message: "Não encontrei seu cadastro. Me diga seu nome completo.",
-          nextAction: "create_patient",
-        });
+      for (const p of patients) {
+        const phones = [
+          p.phoneStandard,
+          p.phone,
+          p.cellphone,
+          p.telephone,
+        ];
+
+        for (const ph of phones) {
+          const d = normalizeBRPhoneDigits(ph);
+          if (d && d.endsWith(target)) {
+            list = [p];
+            break;
+          }
+        }
+
+        if (list.length) break;
       }
 
-      const patient = list[0];
-
-      return contract.ok({
-        data: {
-          id: patient.id ?? null,
-          name: patient.name ?? "",
-        },
-        nextAction: "patient_found",
-      });
+      if (list.length || !patients.length) break;
     }
+  }
+
+  if (!list.length) {
+    return contract.fallback({
+      message: "Não encontrei seu cadastro. Me diga seu nome completo.",
+      nextAction: "create_patient",
+    });
+  }
+
+  const patient = list[0];
+
+  return contract.ok({
+    data: {
+      id: patient.id ?? null,
+      name: patient.name ?? "",
+    },
+    nextAction: "patient_found",
+  });
+}
 
     // -------------------------
     // PROFESSIONAL.SEARCH (mantém como está por enquanto)
