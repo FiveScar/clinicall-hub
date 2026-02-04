@@ -2,6 +2,8 @@
 import express from "express";
 import crypto from "crypto";
 
+import authRouter from "./routes/auth.routes.js";
+
 import patientsRouter from "./routes/patients.routes.js";
 import schedulesRouter from "./routes/schedules.routes.js";
 import professionalsRouter from "./routes/professionals.routes.js";
@@ -39,6 +41,9 @@ app.use(express.json());
 app.get("/health", (_req, res) =>
   res.json({ ok: true, service: "clinicall-hub" })
 );
+
+// ✅ auth debug
+app.use("/auth", authRouter);
 
 // ✅ lista de rotas
 app.use("/__routes", buildRoutesRouter(app));
