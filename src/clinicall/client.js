@@ -1,172 +1,71 @@
 // src/clinicall/client.js
+const BASE_URL = (process.env.CLINICALL_BASE_URL || "").trim(); // ex: https://clinicall-backend-xxx.a.run.app
+const AUTH_TOKEN = (process.env.CLINICALL_AUTH_TOKEN || "").trim(); // token fixo ou obtido por login (se você já faz isso em outro lugar)
+const TENANT_ID = (process.env.CLINICALL_TENANTID || "").trim(); // se você usa tenant header no clinicall
 
-const BASE_URL =
-  process.env.CLINICALL_BASE_URL ||
-  "https://clinicall-backend-rcbqj2mecq-rj.a.run.app";
-
-const TENANTID = process.env.CLINICALL_TENANTID;
-const LOGIN = process.env.CLINICALL_LOGIN;
-const PASSWORD = process.env.CLINICALL_PASSWORD;
-
-// timeout padrão (ms). Pode ajustar se precisar.
-const DEFAULT_TIMEOUT_MS = Number(process.env.CLINICALL_TIMEOUT_MS || 15000);
-
-function assertEnv() {
-  if (!TENANTID || !LOGIN || !PASSWORD) {
-    throw new Error(
-      "Missing env vars: CLINICALL_TENANTID / CLINICALL_LOGIN / CLINICALL_PASSWORD"
-    );
-  }
+function joinUrl(base, path) {
+  const b = String(base || "").replace(/\/+$/, "");
+  const p = String(path || "").replace(/^\/+/, "");
+  if (!b) throw new Error("Missing CLINICALL_BASE_URL env");
+  return `${b}/${p}`;
 }
 
-// Erro HTTP normalizado (útil pro handler diferenciar)
-export class HttpError extends Error {
-  constructor(status, message, details = null) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-    this.details = details;
-  }
-}
-
-// cache simples em memória
-let cachedToken = null;
-let tokenCreatedAt = null;
-
-export function getTokenMeta() {
-  return { tokenCreatedAt };
-}
-
-// helper: fetch com timeout + erro mais claro
-async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
+async function readJsonSafe(resp) {
+  const text = await resp.text();
+  if (!text) return null;
   try {
-    const resp = await fetch(url, { ...options, signal: controller.signal });
-    return resp;
-  } catch (err) {
-    const causeMsg = err?.cause?.message ? ` :: ${err.cause.message}` : "";
-    const msg =
-      err?.name === "AbortError"
-        ? `Request timed out after ${timeoutMs}ms`
-        : err?.message || String(err);
-
-    throw new Error(`Fetch failed for ${url} :: ${msg}${causeMsg}`);
-  } finally {
-    clearTimeout(timeout);
+    return JSON.parse(text);
+  } catch {
+    return text;
   }
 }
 
-export async function authenticate() {
-  assertEnv();
+/**
+ * clinicallRequest(method, path, data?)
+ * - method: "GET" | "POST" | "PUT" | "DELETE"
+ * - path: "/partners/patient/search" etc
+ */
+export async function clinicallRequest(method, path, data) {
+  const m = String(method || "GET").toUpperCase();
 
-  const url = `${BASE_URL}/authenticate`;
+  // URL FINAL É SÓ BASE + PATH (NUNCA encostar method aqui)
+  const url = joinUrl(BASE_URL, path);
 
-  const resp = await fetchWithTimeout(
-    url,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Tenantid": TENANTID,
-      },
-      body: JSON.stringify({
-        login: LOGIN,
-        password: PASSWORD,
-        userRtv: null,
-      }),
-    },
-    DEFAULT_TIMEOUT_MS
-  );
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new HttpError(
-      resp.status,
-      `Auth failed: ${resp.status} ${resp.statusText}`,
-      text || null
-    );
-  }
-
-  const token = resp.headers.get("x-auth-token");
-  if (!token) {
-    const body = await resp.text().catch(() => "");
-    throw new Error(`Auth ok, but x-auth-token missing. Body: ${body}`);
-  }
-
-  cachedToken = token;
-  tokenCreatedAt = new Date().toISOString();
-  return token;
-}
-
-export async function getToken() {
-  // sem expiração declarada -> reutiliza e reautentica só se tomar 401
-  if (cachedToken) return cachedToken;
-  return authenticate();
-}
-
-export async function clinicallRequest(
-  path,
-  { method = "GET", body, headers = {} } = {}
-) {
-  const url = `${BASE_URL}${path}`;
-
-  const doFetch = async (tokenToUse) => {
-    return fetchWithTimeout(
-      url,
-      {
-        method,
-        headers: {
-          ...(body ? { "Content-Type": "application/json" } : {}),
-          "X-Auth-Token": tokenToUse,
-          ...headers,
-        },
-        body: body ? JSON.stringify(body) : undefined,
-      },
-      DEFAULT_TIMEOUT_MS
-    );
+  const headers = {
+    "Content-Type": "application/json",
   };
 
-  let token = await getToken();
-  let resp = await doFetch(token);
+  // Se você usa Auth-Token no Clinicall
+  if (AUTH_TOKEN) headers["X-Auth-Token"] = AUTH_TOKEN;
 
-  // reauth 1x se 401
-  if (resp.status === 401) {
-    cachedToken = null;
-    token = await authenticate();
-    resp = await doFetch(token);
+  // Se você usa Tenant
+  if (TENANT_ID) headers["X-Tenantid"] = TENANT_ID;
 
-    if (resp.status === 401) {
-      const text = await resp.text().catch(() => "");
-      throw new HttpError(401, "Unauthorized even after reauth.", text || null);
-    }
+  const init = {
+    method: m,
+    headers,
+  };
+
+  // body só quando faz sentido
+  if (m !== "GET" && m !== "HEAD" && data !== undefined) {
+    init.body = JSON.stringify(data);
   }
 
-  const contentType = resp.headers.get("content-type") || "";
-  const data = contentType.includes("application/json")
-    ? await resp.json()
-    : await resp.text();
+  let resp;
+  try {
+    resp = await fetch(url, init);
+  } catch (e) {
+    // Aqui pega exatamente esse ENOTFOUND e devolve claro
+    const msg = e?.message || String(e);
+    throw new Error(`Fetch failed for ${url} :: ${msg}`);
+  }
+
+  const payload = await readJsonSafe(resp);
 
   if (!resp.ok) {
-    const details =
-      typeof data === "string" ? data : JSON.stringify(data);
-
-    throw new HttpError(
-      resp.status,
-      `Clinicall error ${resp.status}: ${resp.statusText || "Request failed"}`,
-      details || null
-    );
+    const details = typeof payload === "string" ? payload : JSON.stringify(payload);
+    throw new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
   }
 
-  return data;
+  return payload;
 }
-
-// ✅ default export compatível com as rotas
-const clinicall = {
-  authenticate,
-  getToken,
-  request: clinicallRequest,
-};
-
-export default clinicall;
