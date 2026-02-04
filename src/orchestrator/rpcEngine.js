@@ -112,11 +112,12 @@ export async function runRPC(op, data = {}) {
     // -------------------------
     return contract.error("Operação não suportada");
   } catch (err) {
-    // Debug real (vai pro log do Coolify)
-    console.error("RPC ENGINE ERROR:", err?.message || err);
-    if (err?.stack) console.error(err.stack);
+  console.error("RPC ENGINE ERROR:");
+  console.error(err?.message);
+  console.error(err?.stack);
 
-    // Resposta padrão pro agente (sem detalhe técnico)
-    return contract.error("Instabilidade temporária");
-  }
+  return {
+    status: "error",
+    message: err?.message || "Instabilidade temporária"
+  };
 }
