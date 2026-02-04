@@ -2,6 +2,10 @@
 const BASE_URL = (process.env.CLINICALL_BASE_URL || "").trim(); // ex: https://clinicall-backend-xxx.a.run.app
 const AUTH_TOKEN = (process.env.CLINICALL_AUTH_TOKEN || "").trim(); // token fixo ou obtido por login (se você já faz isso em outro lugar)
 const TENANT_ID = (process.env.CLINICALL_TENANTID || "").trim(); // se você usa tenant header no clinicall
+const REQUEST_TIMEOUT_MS = 9000;
+const MAX_RETRIES = 1;
+const RETRY_STATUS = new Set([502, 503]);
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
 
 function joinUrl(base, path) {
   const b = String(base || "").replace(/\/+$/, "");
@@ -51,20 +55,63 @@ export async function clinicallRequest(method, path, data) {
     init.body = JSON.stringify(data);
   }
 
+  const hasIdempotencyKey = Boolean(headers["Idempotency-Key"] || headers["X-Idempotency-Key"]);
+  const canRetry = IDEMPOTENT_METHODS.has(m) || hasIdempotencyKey;
+  const startTime = Date.now();
+  const retryReasons = [];
+  let attempt = 0;
   let resp;
-  try {
-    resp = await fetch(url, init);
-  } catch (e) {
-    // Aqui pega exatamente esse ENOTFOUND e devolve claro
-    const msg = e?.message || String(e);
-    throw new Error(`Fetch failed for ${url} :: ${msg}`);
+
+  while (true) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    try {
+      resp = await fetch(url, { ...init, signal: controller.signal });
+    } catch (e) {
+      const isTimeout = e?.name === "AbortError";
+      if (isTimeout && canRetry && attempt < MAX_RETRIES) {
+        retryReasons.push("timeout");
+        attempt += 1;
+        continue;
+      }
+      const msg = e?.message || String(e);
+      throw new Error(`Fetch failed for ${url} :: ${msg}`);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (RETRY_STATUS.has(resp.status) && canRetry && attempt < MAX_RETRIES) {
+      retryReasons.push(`status:${resp.status}`);
+      attempt += 1;
+      continue;
+    }
+
+    break;
   }
 
   const payload = await readJsonSafe(resp);
+  const totalDurationMs = Date.now() - startTime;
 
   if (!resp.ok) {
     const details = typeof payload === "string" ? payload : JSON.stringify(payload);
     throw new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
+  }
+
+  if (retryReasons.length > 0) {
+    const meta = {
+      retry: {
+        count: retryReasons.length,
+        reasons: retryReasons,
+      },
+      totalDurationMs,
+    };
+
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      return { ...payload, meta };
+    }
+
+    return { data: payload, meta };
   }
 
   return payload;
