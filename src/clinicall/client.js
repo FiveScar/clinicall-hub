@@ -21,11 +21,12 @@ async function readJsonSafe(resp) {
 }
 
 /**
- * clinicallRequest(method, path, data?)
+ * clinicall.request(path, { method, body })
  * - method: "GET" | "POST" | "PUT" | "DELETE"
  * - path: "/partners/patient/search" etc
  */
-export async function clinicallRequest(method, path, data) {
+async function request(path, options = {}) {
+  const { method = "GET", body } = options;
   const m = String(method || "GET").toUpperCase();
 
   // URL FINAL É SÓ BASE + PATH (NUNCA encostar method aqui)
@@ -47,8 +48,8 @@ export async function clinicallRequest(method, path, data) {
   };
 
   // body só quando faz sentido
-  if (m !== "GET" && m !== "HEAD" && data !== undefined) {
-    init.body = JSON.stringify(data);
+  if (m !== "GET" && m !== "HEAD" && body !== undefined) {
+    init.body = JSON.stringify(body);
   }
 
   let resp;
@@ -69,3 +70,7 @@ export async function clinicallRequest(method, path, data) {
 
   return payload;
 }
+
+const clinicall = { request };
+
+export default clinicall;
