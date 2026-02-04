@@ -1,5 +1,7 @@
 import express from "express";
-import clinicall from "../clinicall/client.js";
+import * as clinicallModule from "../clinicall/client.js";
+
+const clinicall = clinicallModule.default ?? clinicallModule;
 
 const router = express.Router();
 

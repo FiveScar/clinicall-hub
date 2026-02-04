@@ -1,13 +1,12 @@
-// src/routes/orders.routes.js
 import express from "express";
-import clinicall from "../clinicall/client.js";
+import * as clinicallModule from "../clinicall/client.js";
+
+const clinicall = clinicallModule.default ?? clinicallModule;
 
 const router = express.Router();
 
 /**
  * POST /orders
- * Cria uma nova OS
- * -> Clinicall: POST /partners/order
  */
 router.post("/", async (req, res, next) => {
   try {
@@ -23,8 +22,6 @@ router.post("/", async (req, res, next) => {
 
 /**
  * POST /orders/schedule?scheduleId=123
- * Cria uma OS a partir da agenda
- * -> Clinicall: POST /partners/order/schedule?scheduleId=
  */
 router.post("/schedule", async (req, res, next) => {
   try {
@@ -34,7 +31,6 @@ router.post("/schedule", async (req, res, next) => {
       return res.status(400).json({
         ok: false,
         error: "missing_scheduleId",
-        details: "Envie scheduleId na querystring: /orders/schedule?scheduleId=123",
       });
     }
 
@@ -51,14 +47,10 @@ router.post("/schedule", async (req, res, next) => {
 
 /**
  * GET /orders/:orderId
- * Emite Guia TISS (retorna name + pdf base64)
- * -> Clinicall: GET /partners/order/:orderId
  */
 router.get("/:orderId", async (req, res, next) => {
   try {
-    const { orderId } = req.params;
-
-    const data = await clinicall.request(`/partners/order/${orderId}`, {
+    const data = await clinicall.request(`/partners/order/${req.params.orderId}`, {
       method: "GET",
     });
 
