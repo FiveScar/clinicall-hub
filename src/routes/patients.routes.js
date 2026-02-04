@@ -1,6 +1,7 @@
 // src/routes/patients.routes.js
 import express from "express";
-import clinicall from "./clinicall/client.js";
+import clinicall from "../clinicall/client.js";
+
 
 const router = express.Router();
 
