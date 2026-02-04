@@ -13,6 +13,7 @@ import ordersRouter from "./routes/orders.routes.js";
 
 import buildRoutesRouter from "./routes/__routes.routes.js";
 import rpcRouter from "./routes/rpc.routes.js";
+import buildResponse from "./utils/buildResponse.js";
 
 const app = express();
 
@@ -36,8 +37,8 @@ app.use((req, res, next) => {
 // JSON
 app.use(express.json());
 
-app.get("/health", (_req, res) =>
-  res.json({ ok: true, service: "clinicall-hub" })
+app.get("/health", (req, res) =>
+  res.json(buildResponse({ data: { service: "clinicall-hub" }, requestId: req.requestId }))
 );
 
 // ✅ lista de rotas
@@ -58,13 +59,10 @@ app.use("/orders", ordersRouter);
 
 // handler de erro padrão
 app.use((err, req, res, _next) => {
-  const message = err?.message || String(err);
-  res.status(500).json({
-    ok: false,
-    error: "Internal Server Error",
-    details: message,
-    requestId: req?.requestId,
-  });
+  const message = err?.message || "Internal Server Error";
+  res
+    .status(500)
+    .json(buildResponse({ ok: false, data: null, error: message, requestId: req?.requestId }));
 });
 
 export default app;

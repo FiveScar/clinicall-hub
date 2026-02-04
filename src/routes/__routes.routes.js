@@ -1,5 +1,6 @@
 // src/routes/__routes.routes.js
 import express from "express";
+import buildResponse from "../utils/buildResponse.js";
 
 /**
  * Lista rotas do Express de forma dinâmica.
@@ -69,16 +70,20 @@ function sortRoutes(routes) {
 export default function buildRoutesRouter(app) {
   const router = express.Router();
 
-  router.get("/", (_req, res) => {
+  router.get("/", (req, res) => {
     const stack = app?._router?.stack || [];
     const routes = sortRoutes(listRoutesFromStack(stack, ""));
 
-    res.json({
-      ok: true,
-      service: "clinicall-hub",
-      count: routes.length,
-      routes,
-    });
+    res.json(
+      buildResponse({
+        data: {
+          service: "clinicall-hub",
+          count: routes.length,
+          routes,
+        },
+        requestId: req.requestId,
+      })
+    );
   });
 
   return router;
