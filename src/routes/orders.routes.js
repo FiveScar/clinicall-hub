@@ -1,6 +1,7 @@
 // src/routes/orders.routes.js
 import express from "express";
 import clinicall from "../clinicall/client.js";
+import { ok } from "../utils/response.js";
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post("/", async (req, res, next) => {
       method: "POST",
       body: req.body,
     });
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -43,7 +44,7 @@ router.post("/schedule", async (req, res, next) => {
       { method: "POST" }
     );
 
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -62,7 +63,7 @@ router.get("/:orderId", async (req, res, next) => {
       method: "GET",
     });
 
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
