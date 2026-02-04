@@ -1,5 +1,6 @@
 // src/routes/rpc.routes.js
 import express from "express";
+import buildResponse from "../utils/buildResponse.js";
 
 const router = express.Router();
 
@@ -43,11 +44,15 @@ router.post("/", async (req, res, next) => {
     const { op, data = {} } = req.body || {};
 
     if (!op || !OPS[op]) {
-      return res.status(400).json({
-        ok: false,
-        error: "invalid_op",
-        details: `Operação não suportada: ${op}`,
-      });
+      return res.status(400).json(
+        buildResponse({
+          ok: false,
+          data: null,
+          error: `Operação não suportada: ${op}`,
+          meta: { code: "invalid_op" },
+          requestId: req.requestId,
+        })
+      );
     }
 
     const def = OPS[op];

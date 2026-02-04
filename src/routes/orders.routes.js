@@ -1,6 +1,7 @@
 // src/routes/orders.routes.js
 import express from "express";
 import clinicall from "../clinicall/client.js";
+import buildResponse from "../utils/buildResponse.js";
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post("/", async (req, res, next) => {
       method: "POST",
       body: req.body,
     });
-    res.json({ ok: true, data });
+    res.json(buildResponse({ data, requestId: req.requestId }));
   } catch (err) {
     next(err);
   }
@@ -31,11 +32,15 @@ router.post("/schedule", async (req, res, next) => {
     const { scheduleId } = req.query;
 
     if (!scheduleId) {
-      return res.status(400).json({
-        ok: false,
-        error: "missing_scheduleId",
-        details: "Envie scheduleId na querystring: /orders/schedule?scheduleId=123",
-      });
+      return res.status(400).json(
+        buildResponse({
+          ok: false,
+          data: null,
+          error: "Envie scheduleId na querystring: /orders/schedule?scheduleId=123",
+          meta: { code: "missing_scheduleId" },
+          requestId: req.requestId,
+        })
+      );
     }
 
     const data = await clinicall.request(
@@ -43,7 +48,7 @@ router.post("/schedule", async (req, res, next) => {
       { method: "POST" }
     );
 
-    res.json({ ok: true, data });
+    res.json(buildResponse({ data, requestId: req.requestId }));
   } catch (err) {
     next(err);
   }
@@ -62,7 +67,7 @@ router.get("/:orderId", async (req, res, next) => {
       method: "GET",
     });
 
-    res.json({ ok: true, data });
+    res.json(buildResponse({ data, requestId: req.requestId }));
   } catch (err) {
     next(err);
   }

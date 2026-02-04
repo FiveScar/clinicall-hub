@@ -1,6 +1,7 @@
 // src/routes/schedules.routes.js
 import express from "express";
 import clinicall from "../clinicall/client.js";
+import buildResponse from "../utils/buildResponse.js";
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ router.post("/search", async (req, res, next) => {
       method: "POST",
       body: req.body,
     });
-    res.json({ ok: true, data });
+    res.json(buildResponse({ data, requestId: req.requestId }));
   } catch (err) {
     next(err);
   }
@@ -30,7 +31,7 @@ router.post("/", async (req, res, next) => {
       method: "POST",
       body: req.body,
     });
-    res.json({ ok: true, data });
+    res.json(buildResponse({ data, requestId: req.requestId }));
   } catch (err) {
     next(err);
   }
@@ -50,7 +51,7 @@ router.put("/", async (req, res, next) => {
       method: "PUT",
       body: req.body,
     });
-    res.json({ ok: true, data });
+    res.json(buildResponse({ data, requestId: req.requestId }));
   } catch (err) {
     next(err);
   }
@@ -72,13 +73,13 @@ router.post("/:id/confirm", async (req, res, next) => {
         method: "POST",
         body: { scheduleId: Number(id) || id },
       });
-      return res.json({ ok: true, data });
+      return res.json(buildResponse({ data, requestId: req.requestId }));
     } catch (_e) {
       // fallback antigo
       const data = await clinicall.request(`/partners/${id}/patientStatus/C`, {
         method: "POST",
       });
-      return res.json({ ok: true, data });
+      return res.json(buildResponse({ data, requestId: req.requestId }));
     }
   } catch (err) {
     next(err);
@@ -101,13 +102,13 @@ router.post("/:id/cancel", async (req, res, next) => {
         method: "POST",
         body: { scheduleId: Number(id) || id },
       });
-      return res.json({ ok: true, data });
+      return res.json(buildResponse({ data, requestId: req.requestId }));
     } catch (_e) {
       // fallback antigo
       const data = await clinicall.request(`/partners/${id}/patientStatus/B`, {
         method: "POST",
       });
-      return res.json({ ok: true, data });
+      return res.json(buildResponse({ data, requestId: req.requestId }));
     }
   } catch (err) {
     next(err);
@@ -124,7 +125,7 @@ router.get("/status/:type/simpleList", async (req, res, next) => {
     const data = await clinicall.request(`/partners/status/${type}/simpleList`, {
       method: "GET",
     });
-    res.json({ ok: true, data });
+    res.json(buildResponse({ data, requestId: req.requestId }));
   } catch (err) {
     next(err);
   }
