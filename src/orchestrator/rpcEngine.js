@@ -24,6 +24,7 @@ function looksLikeBRPhone(digits) {
 
 function extractPhoneDigitsFromPatient(p) {
   const candidates = [
+    p?.phoneStandart,   // <- Clinicall retorna assim em alguns tenants
     p?.phoneStandard,
     p?.phone,
     p?.cellphone,
