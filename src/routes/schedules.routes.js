@@ -1,11 +1,14 @@
 // src/routes/schedules.routes.js
 import express from "express";
-import clinicall from "../clinicall/client.js";
+import * as clinicallModule from "../clinicall/client.js";
+
+const clinicall = clinicallModule.default ?? clinicallModule;
 
 const router = express.Router();
 
 function buildSchedulePayload(input = {}) {
   const { patientId, doctorId, date, time, ...rest } = input;
+
   const normalized = {
     ...rest,
     patientId: patientId ?? rest.patientId,
@@ -19,10 +22,7 @@ function buildSchedulePayload(input = {}) {
   return normalized;
 }
 
-/**
- * SEARCH (agenda / agendamentos)
- * Upstream: POST /partners/schedule/v2/search
- */
+// SEARCH
 router.post("/search", async (req, res, next) => {
   try {
     const payload = buildSchedulePayload(req.body ?? {});
@@ -36,10 +36,7 @@ router.post("/search", async (req, res, next) => {
   }
 });
 
-/**
- * CREATE (criar agendamento)
- * Upstream: POST /partners/schedule
- */
+// CREATE
 router.post("/", async (req, res, next) => {
   try {
     const payload = buildSchedulePayload(req.body ?? {});
@@ -53,14 +50,7 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-/**
- * UPDATE / RESCHEDULE (reagendar / atualizar)
- * Upstream: PUT /partners/schedule
- *
- * Observação:
- * - Clinicall costuma receber o "id" no body (ex: { id: 123, started: ..., ended: ... })
- * - Por isso usamos PUT no collection.
- */
+// UPDATE
 router.put("/", async (req, res, next) => {
   try {
     const payload = buildSchedulePayload(req.body ?? {});
@@ -74,13 +64,7 @@ router.put("/", async (req, res, next) => {
   }
 });
 
-/**
- * CONFIRM (confirmar presença)
- * Preferência:
- * - POST /partners/scheduleConfirm  body: { scheduleId }
- * Fallback:
- * - POST /partners/:id/patientStatus/C
- */
+// CONFIRM
 router.post("/:id/confirm", async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -91,8 +75,7 @@ router.post("/:id/confirm", async (req, res, next) => {
         body: { scheduleId: Number(id) || id },
       });
       return res.json({ ok: true, data });
-    } catch (_e) {
-      // fallback antigo
+    } catch {
       const data = await clinicall.request(`/partners/${id}/patientStatus/C`, {
         method: "POST",
       });
@@ -103,10 +86,7 @@ router.post("/:id/confirm", async (req, res, next) => {
   }
 });
 
-/**
- * SEMANTIC BOOK
- * POST /schedule/book
- */
+// BOOK (semantic)
 router.post("/book", async (req, res, next) => {
   try {
     const payload = buildSchedulePayload(req.body ?? {});
@@ -120,10 +100,7 @@ router.post("/book", async (req, res, next) => {
   }
 });
 
-/**
- * SEMANTIC RESCHEDULE
- * POST /schedule/reschedule
- */
+// RESCHEDULE (semantic)
 router.post("/reschedule", async (req, res, next) => {
   try {
     const payload = buildSchedulePayload(req.body ?? {});
@@ -137,10 +114,7 @@ router.post("/reschedule", async (req, res, next) => {
   }
 });
 
-/**
- * SEMANTIC CANCEL
- * POST /schedule/cancel
- */
+// CANCEL (semantic)
 router.post("/cancel", async (req, res, next) => {
   try {
     const { scheduleId, id } = req.body ?? {};
@@ -152,7 +126,7 @@ router.post("/cancel", async (req, res, next) => {
         body: { scheduleId: Number(targetId) || targetId },
       });
       return res.json({ ok: true, data });
-    } catch (_e) {
+    } catch {
       const data = await clinicall.request(`/partners/${targetId}/patientStatus/B`, {
         method: "POST",
       });
@@ -163,13 +137,7 @@ router.post("/cancel", async (req, res, next) => {
   }
 });
 
-/**
- * CANCEL (cancelar)
- * Preferência:
- * - POST /partners/scheduleCancel  body: { scheduleId }
- * Fallback:
- * - POST /partners/:id/patientStatus/B
- */
+// CANCEL by id
 router.post("/:id/cancel", async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -180,8 +148,7 @@ router.post("/:id/cancel", async (req, res, next) => {
         body: { scheduleId: Number(id) || id },
       });
       return res.json({ ok: true, data });
-    } catch (_e) {
-      // fallback antigo
+    } catch {
       const data = await clinicall.request(`/partners/${id}/patientStatus/B`, {
         method: "POST",
       });
@@ -192,10 +159,7 @@ router.post("/:id/cancel", async (req, res, next) => {
   }
 });
 
-/**
- * STATUS simpleList passthrough
- * Upstream: GET /partners/status/:type/simpleList
- */
+// STATUS passthrough
 router.get("/status/:type/simpleList", async (req, res, next) => {
   try {
     const { type } = req.params;
