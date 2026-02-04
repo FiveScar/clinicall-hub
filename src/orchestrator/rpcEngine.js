@@ -97,7 +97,11 @@ export async function runRPC(op, data) {
     return contract.error("Operação não suportada");
 
   } catch (err) {
-    console.error("RPC ERROR:", err.message);
-    return contract.error();
-  }
+  console.error("RPC ENGINE ERROR:");
+  console.error(err);
+
+  return contract.error(
+    err?.message || "Instabilidade temporária"
+  );
 }
+
