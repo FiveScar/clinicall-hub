@@ -1,6 +1,7 @@
+import { getAuthToken } from "./auth.js";
+
 // src/clinicall/client.js
 const BASE_URL = (process.env.CLINICALL_BASE_URL || "").trim(); // ex: https://clinicall-backend-xxx.a.run.app
-const AUTH_TOKEN = (process.env.CLINICALL_AUTH_TOKEN || "").trim(); // token fixo ou obtido por login (se você já faz isso em outro lugar)
 const TENANT_ID = (process.env.CLINICALL_TENANTID || "").trim(); // se você usa tenant header no clinicall
 
 function joinUrl(base, path) {
@@ -26,19 +27,23 @@ async function readJsonSafe(resp) {
  * - path: "/partners/patient/search" etc
  */
 export async function clinicallRequest(method, path, data) {
-  const m = String(method || "GET").toUpperCase();
+  return request(path, { method, body: data });
+}
+
+export async function request(path, options = {}) {
+  const m = String(options.method || "GET").toUpperCase();
 
   // URL FINAL É SÓ BASE + PATH (NUNCA encostar method aqui)
   const url = joinUrl(BASE_URL, path);
 
   const headers = {
     "Content-Type": "application/json",
+    ...(options.headers || {}),
   };
 
-  // Se você usa Auth-Token no Clinicall
-  if (AUTH_TOKEN) headers["X-Auth-Token"] = AUTH_TOKEN;
+  const token = await getAuthToken();
+  if (token) headers["X-Auth-Token"] = token;
 
-  // Se você usa Tenant
   if (TENANT_ID) headers["X-Tenantid"] = TENANT_ID;
 
   const init = {
@@ -46,16 +51,15 @@ export async function clinicallRequest(method, path, data) {
     headers,
   };
 
-  // body só quando faz sentido
-  if (m !== "GET" && m !== "HEAD" && data !== undefined) {
-    init.body = JSON.stringify(data);
+  const body = options.body ?? options.data;
+  if (m !== "GET" && m !== "HEAD" && body !== undefined) {
+    init.body = JSON.stringify(body);
   }
 
   let resp;
   try {
     resp = await fetch(url, init);
   } catch (e) {
-    // Aqui pega exatamente esse ENOTFOUND e devolve claro
     const msg = e?.message || String(e);
     throw new Error(`Fetch failed for ${url} :: ${msg}`);
   }
@@ -69,3 +73,7 @@ export async function clinicallRequest(method, path, data) {
 
   return payload;
 }
+
+export default {
+  request,
+};
