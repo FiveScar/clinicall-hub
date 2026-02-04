@@ -1,6 +1,6 @@
 // src/routes/patients.routes.js
 import { Router } from "express";
-import { clinicallRequest } from "../clinicall/client.js";
+import clinicall from "../clinicall/client.js";
 
 const router = Router();
 
@@ -34,7 +34,7 @@ function buildSearchPayload({ argument, page = 0, sizePage = 25, fieldSort = "na
 
 async function upstreamPatientSearch(payload) {
   // Clinicall: POST /partners/patient/search
-  return clinicallRequest("POST", "/partners/patient/search", payload);
+  return clinicall.request("/partners/patient/search", { method: "POST", body: payload });
 }
 
 function toPageResult(found, sizePage = 25) {
@@ -60,7 +60,7 @@ function toPageResult(found, sizePage = 25) {
 router.get("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const data = await clinicallRequest("GET", `/partners/patient/${id}`);
+    const data = await clinicall.request(`/partners/patient/${id}`, { method: "GET" });
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -73,7 +73,7 @@ router.get("/:id", async (req, res, next) => {
 router.post("/", async (req, res, next) => {
   try {
     const payload = req.body ?? {};
-    const data = await clinicallRequest("POST", "/partners/patient", payload);
+    const data = await clinicall.request("/partners/patient", { method: "POST", body: payload });
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -87,7 +87,7 @@ router.put("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const payload = { ...(req.body ?? {}), id };
-    const data = await clinicallRequest("PUT", "/partners/patient", payload);
+    const data = await clinicall.request("/partners/patient", { method: "PUT", body: payload });
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -100,7 +100,7 @@ router.put("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
-    const data = await clinicallRequest("DELETE", `/partners/patient/${id}`);
+    const data = await clinicall.request(`/partners/patient/${id}`, { method: "DELETE" });
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -115,7 +115,7 @@ router.delete("/:id", async (req, res, next) => {
 router.get("/birthday/today-month/:day", async (req, res, next) => {
   try {
     const day = Number(req.params.day);
-    const data = await clinicallRequest("GET", `/partners/patient/birthday/today-month/${day}`);
+    const data = await clinicall.request(`/partners/patient/birthday/today-month/${day}`, { method: "GET" });
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -126,7 +126,9 @@ router.get("/birthday/today-month/:month/:day", async (req, res, next) => {
   try {
     const month = Number(req.params.month);
     const day = Number(req.params.day);
-    const data = await clinicallRequest("GET", `/partners/patient/birthday/today-month/${month}/${day}`);
+    const data = await clinicall.request(`/partners/patient/birthday/today-month/${month}/${day}`, {
+      method: "GET",
+    });
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
