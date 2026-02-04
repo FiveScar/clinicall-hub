@@ -1,6 +1,8 @@
 import { Router } from "express";
 const router = Router();
 
-router.get("/", (_req, res) => res.json({ ok: true, module: "companies", status: "todo" }));
+import { ok } from "../utils/response.js";
+
+router.get("/", (req, res) => ok(res, req, { module: "companies", status: "todo" }));
 
 export default router;

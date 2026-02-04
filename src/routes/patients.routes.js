@@ -1,6 +1,7 @@
 // src/routes/patients.routes.js
 import { Router } from "express";
 import { clinicallRequest } from "../clinicall/client.js";
+import { ok } from "../utils/response.js";
 
 const router = Router();
 
@@ -61,7 +62,7 @@ router.get("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = await clinicallRequest("GET", `/partners/patient/${id}`);
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -74,7 +75,7 @@ router.post("/", async (req, res, next) => {
   try {
     const payload = req.body ?? {};
     const data = await clinicallRequest("POST", "/partners/patient", payload);
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -88,7 +89,7 @@ router.put("/:id", async (req, res, next) => {
     const id = Number(req.params.id);
     const payload = { ...(req.body ?? {}), id };
     const data = await clinicallRequest("PUT", "/partners/patient", payload);
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -101,7 +102,7 @@ router.delete("/:id", async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     const data = await clinicallRequest("DELETE", `/partners/patient/${id}`);
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -116,7 +117,7 @@ router.get("/birthday/today-month/:day", async (req, res, next) => {
   try {
     const day = Number(req.params.day);
     const data = await clinicallRequest("GET", `/partners/patient/birthday/today-month/${day}`);
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -127,7 +128,7 @@ router.get("/birthday/today-month/:month/:day", async (req, res, next) => {
     const month = Number(req.params.month);
     const day = Number(req.params.day);
     const data = await clinicallRequest("GET", `/partners/patient/birthday/today-month/${month}/${day}`);
-    res.json({ ok: true, data });
+    ok(res, req, data);
   } catch (err) {
     next(err);
   }
@@ -153,7 +154,7 @@ router.post("/search", async (req, res, next) => {
     // Se não parece telefone, mantém normal
     if (!looksLikeBRPhone(rawArgument)) {
       const data = await upstreamPatientSearch(defaultPayload);
-      res.json({ ok: true, data });
+      ok(res, req, data);
       return;
     }
 
@@ -172,7 +173,7 @@ router.post("/search", async (req, res, next) => {
       const data = await upstreamPatientSearch(payload);
 
       if (data?.content?.length) {
-        res.json({ ok: true, data });
+        ok(res, req, data);
         return;
       }
     }
@@ -208,7 +209,7 @@ router.post("/search", async (req, res, next) => {
     }
 
     const dataOut = toPageResult(found, sizePage);
-    res.json({ ok: true, data: dataOut });
+    ok(res, req, dataOut);
   } catch (err) {
     next(err);
   }
