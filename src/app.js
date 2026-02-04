@@ -36,6 +36,35 @@ app.use((req, res, next) => {
 // JSON
 app.use(express.json());
 
+// ✅ Normaliza resposta: garante { ok, data, error, meta }
+app.use((req, res, next) => {
+  const originalJson = res.json.bind(res);
+
+  res.json = (payload) => {
+    if (payload && typeof payload === "object" && Object.prototype.hasOwnProperty.call(payload, "ok")) {
+      const normalized = { ...payload };
+
+      if (!Object.prototype.hasOwnProperty.call(normalized, "data")) {
+        normalized.data = null;
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(normalized, "error")) {
+        normalized.error = null;
+      }
+
+      if (!Object.prototype.hasOwnProperty.call(normalized, "meta")) {
+        normalized.meta = {};
+      }
+
+      return originalJson(normalized);
+    }
+
+    return originalJson(payload);
+  };
+
+  next();
+});
+
 app.get("/health", (_req, res) =>
   res.json({ ok: true, service: "clinicall-hub" })
 );

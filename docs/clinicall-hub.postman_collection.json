@@ -1,0 +1,213 @@
+{
+  "info": {
+    "name": "Clinicall Hub",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Coleção para validar RPCs do Clinicall Hub, garantindo o contrato { ok, data, error, meta } e evitando loops."
+  },
+  "item": [
+    {
+      "name": "RPC - Pacientes (search)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/rpc",
+          "host": ["{{baseUrl}}"],
+          "path": ["rpc"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"op\": \"patient.search\",\n  \"data\": {\n    \"argument\": \"\",\n    \"page\": 0,\n    \"sizePage\": 25,\n    \"fieldSort\": \"name\",\n    \"sortDirection\": \"asc\"\n  }\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.test('Contrato { ok, data, error, meta }', () => {",
+              "  pm.expect(json).to.have.property('ok');",
+              "  pm.expect(json).to.have.property('data');",
+              "  pm.expect(json).to.have.property('error');",
+              "  pm.expect(json).to.have.property('meta');",
+              "});",
+              "pm.test('Sem loop (tempo de resposta)', () => {",
+              "  pm.expect(pm.response.responseTime).to.be.below(10000);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RPC - Médicos (professionals search)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/rpc",
+          "host": ["{{baseUrl}}"],
+          "path": ["rpc"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"op\": \"professional.search\",\n  \"data\": {\n    \"argument\": \"\",\n    \"page\": 0,\n    \"sizePage\": 25\n  }\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.test('Contrato { ok, data, error, meta }', () => {",
+              "  pm.expect(json).to.have.property('ok');",
+              "  pm.expect(json).to.have.property('data');",
+              "  pm.expect(json).to.have.property('error');",
+              "  pm.expect(json).to.have.property('meta');",
+              "});",
+              "pm.test('Sem loop (tempo de resposta)', () => {",
+              "  pm.expect(pm.response.responseTime).to.be.below(10000);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RPC - Agenda (schedules search)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/rpc",
+          "host": ["{{baseUrl}}"],
+          "path": ["rpc"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"op\": \"schedule.search\",\n  \"data\": {\n    \"companyId\": 1,\n    \"started\": \"2024-02-01\",\n    \"ended\": \"2024-02-07\"\n  }\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.test('Contrato { ok, data, error, meta }', () => {",
+              "  pm.expect(json).to.have.property('ok');",
+              "  pm.expect(json).to.have.property('data');",
+              "  pm.expect(json).to.have.property('error');",
+              "  pm.expect(json).to.have.property('meta');",
+              "});",
+              "pm.test('Sem loop (tempo de resposta)', () => {",
+              "  pm.expect(pm.response.responseTime).to.be.below(10000);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RPC - Erro simulado (invalid op)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/rpc",
+          "host": ["{{baseUrl}}"],
+          "path": ["rpc"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"op\": \"invalid.op\",\n  \"data\": {}\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.test('Contrato { ok, data, error, meta }', () => {",
+              "  pm.expect(json).to.have.property('ok');",
+              "  pm.expect(json).to.have.property('data');",
+              "  pm.expect(json).to.have.property('error');",
+              "  pm.expect(json).to.have.property('meta');",
+              "});",
+              "pm.test('Erro simulado retorna ok=false', () => {",
+              "  pm.expect(json.ok).to.eql(false);",
+              "});",
+              "pm.test('Sem loop (tempo de resposta)', () => {",
+              "  pm.expect(pm.response.responseTime).to.be.below(10000);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "RPC - CRM offline (simulado)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/rpc",
+          "host": ["{{baseUrl}}"],
+          "path": ["rpc"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"op\": \"patient.search\",\n  \"data\": {\n    \"argument\": \"crm_offline_simulado\",\n    \"page\": 0,\n    \"sizePage\": 1\n  }\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.test('Contrato { ok, data, error, meta }', () => {",
+              "  pm.expect(json).to.have.property('ok');",
+              "  pm.expect(json).to.have.property('data');",
+              "  pm.expect(json).to.have.property('error');",
+              "  pm.expect(json).to.have.property('meta');",
+              "});",
+              "pm.test('CRM offline respeita configuração', () => {",
+              "  const enforceOffline = pm.collectionVariables.get('crmOffline') === 'true';",
+              "  if (enforceOffline) {",
+              "    pm.expect(json.ok).to.eql(false);",
+              "  }",
+              "});",
+              "pm.test('Sem loop (tempo de resposta)', () => {",
+              "  pm.expect(pm.response.responseTime).to.be.below(10000);",
+              "});"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3333"
+    },
+    {
+      "key": "crmOffline",
+      "value": "false"
+    }
+  ]
+}
