@@ -20,7 +20,7 @@ function looksLikeBRPhone(digits) {
 
 function extractPhoneDigitsFromPatient(p) {
   const candidates = [
-    p?.phoneStandart, // clinicall vem assim em alguns tenants
+    p?.phoneStandart, // alguns tenants usam esse nome
     p?.phoneStandard,
     p?.phone,
     p?.cellphone,
@@ -38,7 +38,11 @@ const INDEX_DIR = path.dirname(INDEX_PATH);
 const PAGE_SIZE = Number(process.env.CLINICALL_INDEX_PAGE_SIZE || 100);
 const MAX_PAGES_PER_PREFIX = Number(process.env.CLINICALL_INDEX_MAX_PAGES || 200);
 
+// Você pode limitar pra testar rápido, ex:
+// CLINICALL_INDEX_PREFIXES=J
+// CLINICALL_INDEX_PREFIXES=A,B,C,0,1,Ç
 const PREFIXES_ENV = (process.env.CLINICALL_INDEX_PREFIXES || "").trim();
+
 // padrão macro: letras + números + Ç
 const DEFAULT_PREFIXES = [
   ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split(""),
@@ -50,7 +54,7 @@ let index = new Map(); // phoneDigits -> { id, name, updatedAt }
 let isLoaded = false;
 let isBuilding = false;
 let lastBuildAt = null;
-let lastBuildStats = { scanned: 0, indexed: 0, prefixes: 0 };
+let lastBuildStats = { scanned: 0, indexed: 0, prefixes: 0, prefix: null, page: 0 };
 
 async function ensureDir() {
   await fs.mkdir(INDEX_DIR, { recursive: true });
@@ -126,7 +130,6 @@ export async function upsertPatient(p) {
 
 function getPrefixes() {
   if (!PREFIXES_ENV) return DEFAULT_PREFIXES;
-  // exemplo: "A,B,C,0,1,Ç"
   return PREFIXES_ENV
     .split(",")
     .map((s) => s.trim())
@@ -134,10 +137,13 @@ function getPrefixes() {
 }
 
 async function scanPrefix(prefix) {
-  let scanned = 0;
-  let indexed = 0;
+  let scannedLocal = 0;
+  let indexedLocal = 0;
 
   for (let page = 0; page < MAX_PAGES_PER_PREFIX; page++) {
+    lastBuildStats.prefix = prefix;
+    lastBuildStats.page = page;
+
     const body = {
       argument: prefix,
       page,
@@ -146,23 +152,30 @@ async function scanPrefix(prefix) {
       sortDirection: "asc",
     };
 
+    // ✅ chamada CRM
     const r = await clinicall.request("/partners/patient/search", { method: "POST", body });
     const content = Array.isArray(r?.content) ? r.content : [];
 
-    if (page === 0) {
-      console.log(`[patientIndex] prefix="${prefix}" page=0 count=${content.length}`);
-    }
-
     if (!content.length) break;
 
-    scanned += content.length;
+    // ✅ progresso em tempo real (global e local)
+    scannedLocal += content.length;
+    lastBuildStats.scanned += content.length;
 
     for (const p of content) {
-      indexed += await upsertPatient(p);
+      const inc = await upsertPatient(p);
+      indexedLocal += inc;
+      lastBuildStats.indexed += inc;
+    }
+
+    // ✅ salva parcial a cada 5 páginas (e atualiza lastBuildAt)
+    if (page % 5 === 0) {
+      lastBuildAt = new Date().toISOString();
+      await saveToDisk();
     }
   }
 
-  return { scanned, indexed };
+  return { scannedLocal, indexedLocal };
 }
 
 export async function rebuildIndex() {
@@ -170,34 +183,35 @@ export async function rebuildIndex() {
   if (isBuilding) return { started: false, reason: "already_building" };
 
   isBuilding = true;
-  lastBuildStats = { scanned: 0, indexed: 0, prefixes: 0 };
+  lastBuildStats = { scanned: 0, indexed: 0, prefixes: 0, prefix: null, page: 0 };
 
   const prefixes = getPrefixes();
   lastBuildStats.prefixes = prefixes.length;
 
   try {
     console.log(`[patientIndex] rebuild started prefixes=${prefixes.length}`);
-    for (const pref of prefixes) {
-      const s = await scanPrefix(pref);
-      lastBuildStats.scanned += s.scanned;
-      lastBuildStats.indexed += s.indexed;
 
-      // salva a cada prefixo (persistência forte)
+    for (const pref of prefixes) {
+      await scanPrefix(pref);
+
+      // ✅ checkpoint por prefixo
       lastBuildAt = new Date().toISOString();
       await saveToDisk();
     }
 
     console.log(
-      `[patientIndex] rebuild finished scanned=${lastBuildStats.scanned} indexed=${lastBuildStats.indexed}`
+      `[patientIndex] rebuild finished scanned=${lastBuildStats.scanned} indexed=${lastBuildStats.indexed} phones=${index.size}`
     );
 
     return { started: true, ok: true, stats: lastBuildStats };
   } finally {
     isBuilding = false;
+    // salva final
+    lastBuildAt = new Date().toISOString();
+    await saveToDisk();
   }
 }
 
-// dispara rebuild sem travar request
 export async function rebuildIndexAsync() {
   rebuildIndex().catch((e) => console.error("[patientIndex] rebuild error:", e?.message || e));
 }
@@ -214,7 +228,6 @@ export async function status() {
   };
 }
 
-// warmup leve: garante carregado e, se ainda não tiver build, inicia async
 export async function warmupIfEmpty() {
   await loadFromDisk();
   if (!lastBuildAt && !isBuilding) {
