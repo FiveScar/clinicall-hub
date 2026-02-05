@@ -13,6 +13,11 @@ const router = Router();
 /**
  * Utils
  */
+function toId(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function buildSearchPayload({
   argument,
   page = 0,
@@ -33,16 +38,54 @@ async function upstreamPatientSearch(payload) {
 }
 
 function buildPatientPayload(input = {}) {
-  const { name, cpf, phone, birthdate, ...rest } = input;
+  // A Clinicall valida campos strict.
+  // Padronizamos para o que a API realmente espera:
+  // birthday, genderId, civilStatusId, insuranceId, address.cityId, address.addressTypeId
+  const payload = {};
 
-  const payload = {
-    ...rest,
-    name: name ?? rest.name,
-    cpf: cpf ?? rest.cpf,
-    // mantém telefone no cadastro (se o sistema usar), mas NÃO usa telefone para busca
-    phoneStandart: rest.phoneStandart ?? phone ?? rest.phone,
-    birthDate: rest.birthDate ?? birthdate ?? rest.birthdate,
-  };
+  const id = input.id ?? input.patientId;
+  if (id != null) payload.id = id;
+
+  payload.name = input.name ?? "";
+  payload.cpf = input.cpf ?? undefined;
+  payload.birthday = input.birthday ?? input.birthDate ?? input.birthdate ?? undefined;
+  payload.phoneStandart = input.phoneStandart ?? input.phone ?? undefined;
+
+  // ids planos
+  const genderId = toId(input.genderId ?? input.gender?.id);
+  if (genderId) payload.genderId = genderId;
+
+  const civilStatusId = toId(input.civilStatusId ?? input.civilStatus?.id);
+  if (civilStatusId) payload.civilStatusId = civilStatusId;
+
+  const insuranceId = toId(input.insuranceId ?? input.insurance?.id);
+  if (insuranceId) payload.insuranceId = insuranceId;
+
+  const companyId = toId(input.companyId);
+  if (companyId) payload.companyId = companyId;
+
+  if (input.active !== undefined) payload.active = Boolean(input.active);
+  if (input.mother !== undefined) payload.mother = input.mother;
+  if (input.email !== undefined) payload.email = input.email;
+  if (input.identity !== undefined) payload.identity = input.identity;
+
+  if (input.address) {
+    const a = input.address;
+    const addressTypeId = toId(a.addressTypeId ?? a.addressType?.id);
+    const cityId = toId(a.cityId ?? a.city?.id);
+    const countryId = toId(a.countryId) ?? 1;
+    payload.address = {
+      address: a.address,
+      district: a.district,
+      zipcode: a.zipcode,
+      description: a.description,
+      addon: a.addon,
+      number: a.number,
+      addressTypeId,
+      cityId,
+      countryId,
+    };
+  }
 
   return normalizePatient(payload);
 }
