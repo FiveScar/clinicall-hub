@@ -8,17 +8,10 @@ import * as contract from "./contract.js";
 function onlyDigits(v) {
   return String(v ?? "").replace(/\D+/g, "");
 }
-
-function toIdObject(v) {
-  const id = Number(v?.id ?? v);
-  return Number.isFinite(id) && id > 0 ? { id } : null;
-}
-
 function toId(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
-
 function buildSearchPayload(input = {}) {
   return {
     argument: input.argument ?? "",
@@ -30,63 +23,52 @@ function buildSearchPayload(input = {}) {
 }
 
 /**
- * buildPatientPayload — WHITELIST
- * NUNCA use ...rest com Clinicall.
+ * buildPatientCreatePayload — WHITELIST + IDs planos (conforme doc Clinicall)
+ * CREATE: birthday + genderId/civilStatusId/insuranceId + address.cityId/addressTypeId
  */
-function buildPatientPayload(input = {}) {
+function buildPatientCreatePayload(input = {}) {
   const payload = {};
 
-  // Required-ish (tenant-dependent)
-  if (input.name != null) payload.name = String(input.name).trim();
-  if (input.cpf != null) payload.cpf = onlyDigits(input.cpf);
+  // Required
+  payload.name = String(input.name ?? "").trim();
+  payload.cpf = onlyDigits(input.cpf);
 
-  // Date field: alguns tenants usam birthDate, outros birthday.
-  // Mantemos birthDate porque foi o que você vem usando nos testes.
-  if (input.birthDate != null) payload.birthDate = String(input.birthDate).trim();
-  if (input.birthdate != null && payload.birthDate == null) payload.birthDate = String(input.birthdate).trim();
-  if (input.birthday != null && payload.birthDate == null) payload.birthDate = String(input.birthday).trim();
+  // Clinicall espera birthday (YYYY-MM-DD)
+  const birthday = input.birthday ?? input.birthDate ?? input.birthdate;
+  if (birthday != null) payload.birthday = String(birthday).trim();
 
+  // Optional
   if (input.mother !== undefined) payload.mother = input.mother;
   if (input.email !== undefined) payload.email = input.email;
   if (input.identity !== undefined) payload.identity = input.identity;
   if (input.active !== undefined) payload.active = Boolean(input.active);
 
-  // phoneStandart
-  if (input.phoneStandart != null) payload.phoneStandart = onlyDigits(input.phoneStandart);
-  if (input.phone != null && payload.phoneStandart == null) payload.phoneStandart = onlyDigits(input.phone);
+  const phone = onlyDigits(input.phoneStandart ?? input.phone);
+  if (phone) payload.phoneStandart = phone;
 
-  // medicalRecord (aparece no GET, pode ser exigido em alguns tenants)
-  if (input.medicalRecord != null) payload.medicalRecord = String(input.medicalRecord).trim();
+  // IDs planos
+  const genderId = toId(input.genderId);
+  if (genderId) payload.genderId = genderId;
 
-  // Relacionamentos: sempre { id }
-  const gender = toIdObject(input.genderId ?? input.gender);
-  if (gender) payload.gender = gender;
+  const civilStatusId = toId(input.civilStatusId);
+  if (civilStatusId) payload.civilStatusId = civilStatusId;
 
-  const civilStatus = toIdObject(input.civilStatusId ?? input.civilStatus);
-  if (civilStatus) payload.civilStatus = civilStatus;
+  const insuranceId = toId(input.insuranceId);
+  if (insuranceId) payload.insuranceId = insuranceId;
 
-  const insurance = toIdObject(input.insuranceId ?? input.insurance);
-  if (insurance) payload.insurance = insurance;
-
-  // companyId (se seu tenant usar)
   const companyId = toId(input.companyId);
   if (companyId) payload.companyId = companyId;
 
-  // Address: só entra se você mandar address
+  // Address (IDs planos)
   if (input.address) {
     const a = input.address;
 
-    const addressTypeId = toId(a.addressTypeId ?? a.addressType?.id);
-    const cityId = toId(a.cityId ?? a.city?.id);
-    const countryId = toId(a.countryId ?? a.country?.id) ?? 1;
+    const addressTypeId = toId(a.addressTypeId);
+    const cityId = toId(a.cityId);
+    const countryId = toId(a.countryId) ?? 1;
 
-    // Clinicall já te disse: addressTypeId é obrigatório quando manda endereço
-    if (!addressTypeId) {
-      throw new Error("patient.create: addressTypeId é obrigatório quando address é informado");
-    }
-    if (!cityId) {
-      throw new Error("patient.create: cityId é obrigatório quando address é informado");
-    }
+    if (!addressTypeId) throw new Error("patient.create: address.addressTypeId é obrigatório quando address é informado");
+    if (!cityId) throw new Error("patient.create: address.cityId é obrigatório quando address é informado");
 
     payload.address = {
       address: a.address ?? "",
@@ -95,16 +77,10 @@ function buildPatientPayload(input = {}) {
       description: a.description ?? null,
       addon: a.addon ?? null,
       number: a.number != null ? String(a.number) : null,
-
-      // O que o tenant pediu explicitamente
       addressTypeId,
       cityId,
       countryId,
-
-      // Alguns tenants exigem também objeto city/addressType
-      addressType: { id: addressTypeId },
-      city: { id: cityId },
-      country: { id: countryId },
+      country: a.country ?? "Brasil", // se o tenant aceitar string, ok; se não, remova
     };
   }
 
@@ -112,17 +88,61 @@ function buildPatientPayload(input = {}) {
 }
 
 /**
- * buildSchedulePayload — mínimo útil para agenda
+ * buildPatientUpdatePayload — UPDATE (PUT /partners/patient) costuma aceitar objetos (id), mas
+ * vamos manter também IDs planos para evitar rejeição.
  */
-function buildSchedulePayload(input = {}) {
-  const payload = { ...input };
+function buildPatientUpdatePayload(input = {}) {
+  const payload = {};
 
-  // aliases
-  if (payload.doctorId != null && payload.performerId == null) payload.performerId = payload.doctorId;
-  if (payload.specialtyId != null && payload.specialityId == null) payload.specialityId = payload.specialtyId;
+  const id = toId(input.id ?? input.patientId);
+  if (id) payload.id = id;
 
-  // date+time -> started
-  if (!payload.started && payload.date && payload.time) payload.started = `${payload.date}T${payload.time}`;
+  if (input.name != null) payload.name = String(input.name).trim();
+  if (input.cpf != null) payload.cpf = onlyDigits(input.cpf);
+
+  const birthday = input.birthday ?? input.birthDate ?? input.birthdate;
+  if (birthday != null) payload.birthday = String(birthday).trim();
+
+  if (input.mother !== undefined) payload.mother = input.mother;
+  if (input.email !== undefined) payload.email = input.email;
+  if (input.identity !== undefined) payload.identity = input.identity;
+  if (input.active !== undefined) payload.active = Boolean(input.active);
+
+  const phone = onlyDigits(input.phoneStandart ?? input.phone);
+  if (phone) payload.phoneStandart = phone;
+
+  const genderId = toId(input.genderId ?? input.gender?.id);
+  if (genderId) payload.genderId = genderId;
+
+  const civilStatusId = toId(input.civilStatusId ?? input.civilStatus?.id);
+  if (civilStatusId) payload.civilStatusId = civilStatusId;
+
+  const insuranceId = toId(input.insuranceId ?? input.insurance?.id);
+  if (insuranceId) payload.insuranceId = insuranceId;
+
+  const companyId = toId(input.companyId);
+  if (companyId) payload.companyId = companyId;
+
+  if (input.address) {
+    const a = input.address;
+    const addressTypeId = toId(a.addressTypeId ?? a.addressType?.id);
+    const cityId = toId(a.cityId ?? a.city?.id);
+    const countryId = toId(a.countryId ?? a.country?.id) ?? 1;
+
+    if (addressTypeId && cityId) {
+      payload.address = {
+        address: a.address ?? "",
+        district: a.district ?? "",
+        zipcode: onlyDigits(a.zipcode),
+        description: a.description ?? null,
+        addon: a.addon ?? null,
+        number: a.number != null ? String(a.number) : null,
+        addressTypeId,
+        cityId,
+        countryId,
+      };
+    }
+  }
 
   return payload;
 }
@@ -144,17 +164,13 @@ export async function runRPC(op, data = {}) {
   op = String(op || "").trim();
 
   try {
-    // -------------------------
     // COMPANIES
-    // -------------------------
     if (op === "companies.list") {
       const r = await GET("/partners/company");
       return contract.ok({ data: r, nextAction: "companies_list" });
     }
 
-    // -------------------------
-    // PATIENTS
-    // -------------------------
+    // PATIENT SEARCH (sem telefone)
     if (op === "patient.search") {
       const body = buildSearchPayload({
         argument: String(data?.argument ?? "").trim(),
@@ -171,7 +187,6 @@ export async function runRPC(op, data = {}) {
         });
       }
 
-      // PROIBIDO: heurística de telefone
       const digits = onlyDigits(body.argument);
       if (digits.length === 10 || digits.length === 11) {
         return contract.fallback({
@@ -205,6 +220,7 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: list[0], nextAction: "patient_found" });
     }
 
+    // PATIENT GET
     if (op === "patient.get") {
       const id = toId(data?.id ?? data?.patientId);
       if (!id) return contract.error("patient.get: id inválido");
@@ -212,25 +228,27 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r?.data ?? r, nextAction: "patient_loaded" });
     }
 
+    // PATIENT CREATE (IDs planos + birthday)
     if (op === "patient.create") {
-      const payload = buildPatientPayload(data || {});
+      const payload = buildPatientCreatePayload(data || {});
 
       if (!payload.name) return contract.error("patient.create: name é obrigatório");
       if (!payload.cpf || payload.cpf.length !== 11) return contract.error("patient.create: CPF inválido");
+      if (!payload.birthday) return contract.error("patient.create: birthday é obrigatório (YYYY-MM-DD)");
 
       const r = await POST("/partners/patient", payload);
       return contract.ok({ data: r?.data ?? r, nextAction: "patient_created" });
     }
 
+    // PATIENT UPDATE
     if (op === "patient.update") {
-      const id = toId(data?.id ?? data?.patientId);
-      if (!id) return contract.error("patient.update: id inválido");
-      const payload = buildPatientPayload({ ...(data || {}), id });
-      payload.id = id;
+      const payload = buildPatientUpdatePayload(data || {});
+      if (!payload.id) return contract.error("patient.update: id inválido");
       const r = await PUT("/partners/patient", payload);
       return contract.ok({ data: r?.data ?? r, nextAction: "patient_updated" });
     }
 
+    // PATIENT DELETE
     if (op === "patient.delete") {
       const id = toId(data?.id ?? data?.patientId);
       if (!id) return contract.error("patient.delete: id inválido");
@@ -238,9 +256,7 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r?.data ?? r, nextAction: "patient_deleted" });
     }
 
-    // -------------------------
-    // SPECIALITY / PROFESSIONAL
-    // -------------------------
+    // SPECIALITIES / PROFESSIONALS
     if (op === "speciality.search") {
       const r = await POST("/partners/speciality/search", buildSearchPayload(data || {}));
       return contract.ok({ data: r, nextAction: "specialities_list" });
@@ -251,36 +267,34 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r, nextAction: "professionals_list" });
     }
 
-    // -------------------------
     // SCHEDULES
-    // -------------------------
     if (op === "schedule.search") {
-      const r = await POST("/partners/schedule/v2/search", buildSchedulePayload(data || {}));
+      const r = await POST("/partners/schedule/v2/search", data || {});
       return contract.ok({ data: r, nextAction: "schedules_list" });
     }
 
     if (op === "schedule.book" || op === "schedule.create") {
-      const payload = buildSchedulePayload(data || {});
-      if (!payload.patientId || !payload.performerId || !payload.started) {
+      const p = data || {};
+      if (!p.patientId || !p.performerId || !p.started) {
         return contract.fallback({
           message: "Perfeito. Para marcar, preciso do paciente, do profissional e do horário.",
           nextAction: "ask_missing_booking_fields",
         });
       }
-      const r = await POST("/partners/schedule", payload);
+      const r = await POST("/partners/schedule", p);
       return contract.ok({ data: r, nextAction: "schedule_created" });
     }
 
     if (op === "schedule.reschedule" || op === "schedule.update") {
-      const payload = buildSchedulePayload(data || {});
-      if (!payload.id && !payload.scheduleId) {
+      const p = data || {};
+      if (!p.id && !p.scheduleId) {
         return contract.fallback({
           message: "Certo. Para remarcar, preciso do identificador da consulta.",
           nextAction: "ask_schedule_id",
         });
       }
-      if (!payload.id && payload.scheduleId) payload.id = payload.scheduleId;
-      const r = await PUT("/partners/schedule", payload);
+      if (!p.id && p.scheduleId) p.id = p.scheduleId;
+      const r = await PUT("/partners/schedule", p);
       return contract.ok({ data: r, nextAction: "schedule_updated" });
     }
 
@@ -312,21 +326,13 @@ export async function runRPC(op, data = {}) {
 
     return contract.error("Operação não suportada");
   } catch (err) {
-    const details =
-      err?.response?.data ||
-      err?.data ||
-      err?.message ||
-      String(err);
+    const details = err?.response?.data || err?.data || err?.message || String(err);
 
     console.error("RPC ENGINE ERROR:", err?.message || err);
     if (err?.response?.status) console.error("UPSTREAM STATUS:", err.response.status);
     if (err?.response?.data) console.error("UPSTREAM DATA:", err.response.data);
     if (err?.stack) console.error(err.stack);
 
-    return {
-      status: "error",
-      message: "Instabilidade temporária",
-      details,
-    };
+    return { status: "error", message: "Instabilidade temporária", details };
   }
 }
