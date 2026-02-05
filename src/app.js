@@ -16,6 +16,8 @@ import ordersRouter from "./routes/orders.routes.js";
 import buildRoutesRouter from "./routes/__routes.routes.js";
 import rpcRouter from "./routes/rpc.routes.js";
 
+import indexRouter from "./routes/index.routes.js";
+
 const app = express();
 
 // ✅ Request ID + log curto
@@ -44,6 +46,9 @@ app.get("/health", (_req, res) =>
 
 // ✅ auth debug
 app.use("/auth", authRouter);
+
+// ✅ index (telefone -> paciente)
+app.use("/index", indexRouter);
 
 // ✅ lista de rotas
 app.use("/__routes", buildRoutesRouter(app));

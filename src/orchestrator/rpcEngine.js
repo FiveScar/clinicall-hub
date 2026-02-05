@@ -1,6 +1,7 @@
 // src/orchestrator/rpcEngine.js
 import clinicall from "../clinicall/client.js";
 import * as contract from "./contract.js";
+import * as patientIndex from "../index/patientIndex.js";
 
 function topOptions(list, mapper, limit = 3) {
   return (Array.isArray(list) ? list : []).slice(0, limit).map(mapper);
@@ -12,19 +13,26 @@ function onlyDigits(v) {
 
 function normalizeBRPhoneDigits(raw) {
   let d = onlyDigits(raw);
-  // remove DDI 55 se vier
   if ((d.length === 12 || d.length === 13) && d.startsWith("55")) d = d.slice(2);
   return d;
 }
 
 function looksLikeBRPhone(digits) {
-  // BR: 10 (DDD+8) ou 11 (DDD+9)
   return digits.length === 10 || digits.length === 11;
+}
+
+async function safeClinicallRequest(path, body) {
+  try {
+    const r = await clinicall.request(path, { method: "POST", body });
+    return { ok: true, data: r };
+  } catch (e) {
+    return { ok: false, error: e };
+  }
 }
 
 function extractPhoneDigitsFromPatient(p) {
   const candidates = [
-    p?.phoneStandart,   // <- Clinicall retorna assim em alguns tenants
+    p?.phoneStandart,
     p?.phoneStandard,
     p?.phone,
     p?.cellphone,
@@ -36,27 +44,14 @@ function extractPhoneDigitsFromPatient(p) {
   return candidates.map(normalizeBRPhoneDigits).filter(Boolean);
 }
 
-async function safeClinicallRequest(path, body) {
-  // protege para qualquer erro do Clinicall (500, timeout etc.)
-  try {
-    const r = await clinicall.request(path, { method: "POST", body });
-    return { ok: true, data: r };
-  } catch (e) {
-    return { ok: false, error: e };
-  }
-}
-
 async function scanPatientByPhone(targetDigits, opts = {}) {
-  const sizePage = Number.isFinite(opts.sizePage) ? opts.sizePage : 50;
+  const sizePage = Number.isFinite(opts.sizePage) ? opts.sizePage : 100;
   const maxPages = Number.isFinite(opts.maxPages) ? opts.maxPages : 20;
 
-  // IMPORTANTÍSSIMO:
-  // - argument vazio pode derrubar alguns tenants (500)
-  // - então tentamos "neutros" que costumam retornar lista
-  const neutralArgs = ["a", "e", "o", "1", "0"];
+  // fallback: scan “mínimo” só pra não travar se o índice ainda não rodou
+  const neutralArgs = ["A", "E", "O", "1", "0"];
 
   for (const neutral of neutralArgs) {
-    // tenta varrer páginas com esse neutral
     for (let page = 0; page < maxPages; page++) {
       const body = {
         argument: neutral,
@@ -67,22 +62,14 @@ async function scanPatientByPhone(targetDigits, opts = {}) {
       };
 
       const res = await safeClinicallRequest("/partners/patient/search", body);
-      if (!res.ok) {
-        // se esse neutral causa erro, troca pro próximo neutral
-        break;
-      }
+      if (!res.ok) break;
 
       const content = Array.isArray(res.data?.content) ? res.data.content : [];
-      if (!content.length) {
-        // acabou a lista
-        break;
-      }
+      if (!content.length) break;
 
       for (const p of content) {
         const phones = extractPhoneDigitsFromPatient(p);
-
         for (const ph of phones) {
-          // match exato ou por final (caso normalizações diferentes)
           if (ph === targetDigits) return p;
           if (ph.endsWith(targetDigits)) return p;
           if (targetDigits.endsWith(ph)) return p;
@@ -96,34 +83,42 @@ async function scanPatientByPhone(targetDigits, opts = {}) {
 
 export async function runRPC(op, data = {}) {
   try {
-    // -------------------------
-    // PATIENT.SEARCH (TURBO)
-    // -------------------------
+    // warmup do índice (não bloqueia)
+    patientIndex.warmupIfEmpty().catch(() => {});
+
     if (op === "patient.search") {
       const argumentRaw = data?.argument ?? "";
       const phoneDigits = normalizeBRPhoneDigits(argumentRaw);
 
-      // Se parece telefone: NÃO chama Clinicall search com telefone (pode dar 500)
+      // telefone → 1) índice local
       if (looksLikeBRPhone(phoneDigits)) {
-        const found = await scanPatientByPhone(phoneDigits, { maxPages: 20, sizePage: 50 });
-
-        if (!found) {
-          return contract.fallback({
-            message: "Não encontrei seu cadastro. Me diga seu nome completo.",
-            nextAction: "create_patient",
+        const hit = await patientIndex.getByPhone(phoneDigits);
+        if (hit?.id) {
+          return contract.ok({
+            data: { id: hit.id, name: hit.name || "" },
+            nextAction: "patient_found",
           });
         }
 
-        return contract.ok({
-          data: {
-            id: found.id ?? null,
-            name: found.name ?? "",
-          },
-          nextAction: "patient_found",
+        // 2) fallback scan mínimo (só enquanto índice ainda não cobriu)
+        const found = await scanPatientByPhone(phoneDigits, { maxPages: 10, sizePage: 100 });
+        if (found) {
+          // alimenta índice
+          await patientIndex.upsertPatient(found);
+          return contract.ok({
+            data: { id: found.id ?? null, name: found.name ?? "" },
+            nextAction: "patient_found",
+          });
+        }
+
+        // 3) não achou → não loopa, conduz cadastro
+        return contract.fallback({
+          message: "Não encontrei seu cadastro. Me diga seu nome completo.",
+          nextAction: "create_patient",
         });
       }
 
-      // Se NÃO parece telefone: usa busca normal (CPF/Nome etc.)
+      // CPF/NOME → search normal do CRM (rápido)
       const body = {
         argument: String(argumentRaw || ""),
         page: Number.isFinite(data?.page) ? data.page : 0,
@@ -132,11 +127,7 @@ export async function runRPC(op, data = {}) {
         sortDirection: data?.sortDirection ?? "asc",
       };
 
-      const r = await clinicall.request("/partners/patient/search", {
-        method: "POST",
-        body,
-      });
-
+      const r = await clinicall.request("/partners/patient/search", { method: "POST", body });
       const list = Array.isArray(r?.content) ? r.content : [];
 
       if (!list.length) {
@@ -147,19 +138,15 @@ export async function runRPC(op, data = {}) {
       }
 
       const patient = list[0];
+      // alimenta índice se vier telefone
+      await patientIndex.upsertPatient(patient);
 
       return contract.ok({
-        data: {
-          id: patient.id ?? null,
-          name: patient.name ?? "",
-        },
+        data: { id: patient.id ?? null, name: patient.name ?? "" },
         nextAction: "patient_found",
       });
     }
 
-    // -------------------------
-    // PROFESSIONAL.SEARCH (mantém como está por enquanto)
-    // -------------------------
     if (op === "professional.search") {
       const r = await clinicall.request("/partners/performer/search", {
         method: "POST",
@@ -184,9 +171,6 @@ export async function runRPC(op, data = {}) {
       });
     }
 
-    // -------------------------
-    // SCHEDULE.SEARCH (mantém como está por enquanto)
-    // -------------------------
     if (op === "schedule.search") {
       const r = await clinicall.request("/partners/schedule/v2/search", {
         method: "POST",
@@ -207,11 +191,7 @@ export async function runRPC(op, data = {}) {
           const date = s.date || s.started || s.startDate || s.day || "";
           const time = s.time || s.hour || s.startedHour || "";
           const label = [date, time].filter(Boolean).join(" às ") || "Horário disponível";
-
-          return {
-            id: s.id ?? s.scheduleId ?? null,
-            label,
-          };
+          return { id: s.id ?? s.scheduleId ?? null, label };
         }),
         nextAction: "choose_schedule",
       });
@@ -222,10 +202,6 @@ export async function runRPC(op, data = {}) {
     console.error("RPC ENGINE ERROR:", err?.message || err);
     if (err?.stack) console.error(err.stack);
 
-    // mantém seu padrão atual de retorno
-    return {
-      status: "error",
-      message: "Instabilidade temporária",
-    };
+    return { status: "error", message: "Instabilidade temporária" };
   }
 }
