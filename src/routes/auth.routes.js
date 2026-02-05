@@ -1,6 +1,6 @@
 // src/routes/auth.routes.js
 import { Router } from "express";
-import { clinicallRequest } from "../clinicall/client.js";
+import clinicall from "../clinicall/client.js";
 
 const router = Router();
 
@@ -11,7 +11,8 @@ const router = Router();
  */
 router.get("/ping", async (_req, res) => {
   try {
-    const data = await clinicallRequest("GET", "/partners/company");
+    // chamada real no CRM (usa auto-auth + retry)
+    const data = await clinicall.request("/partners/company", { method: "GET" });
 
     return res.json({
       ok: true,
@@ -28,7 +29,7 @@ router.get("/ping", async (_req, res) => {
         CLINICALL_TENANTID: !!process.env.CLINICALL_TENANTID,
         CLINICALL_LOGIN: !!process.env.CLINICALL_LOGIN,
         CLINICALL_PASSWORD: !!process.env.CLINICALL_PASSWORD,
-        CLINICALL_AUTH_PATH: process.env.CLINICALL_AUTH_PATH || "(default /auth/login)",
+        CLINICALL_AUTH_PATH: process.env.CLINICALL_AUTH_PATH || "(default /authenticate)",
       },
     });
   }
