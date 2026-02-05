@@ -425,12 +425,21 @@ export async function runRPC(op, data = {}) {
 
     return contract.error("Operação não suportada");
   } catch (err) {
-    console.error("RPC ENGINE ERROR:", err?.message || err);
-    if (err?.stack) console.error(err.stack);
+  console.error("RPC ENGINE ERROR:", err?.message || err);
 
-    return {
-      status: "error",
-      message: "Instabilidade temporária",
-    };
-  }
+  const details =
+    err?.response?.data ||
+    err?.data ||
+    err?.message ||
+    String(err);
+
+  if (err?.response?.status) console.error("UPSTREAM STATUS:", err.response.status);
+  if (err?.response?.data) console.error("UPSTREAM DATA:", err.response.data);
+  if (err?.stack) console.error(err.stack);
+
+  return {
+    status: "error",
+    message: "Instabilidade temporária",
+    details,
+  };
 }
