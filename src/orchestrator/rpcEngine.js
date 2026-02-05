@@ -13,12 +13,11 @@ function isDateYYYYMMDD(s) {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-function toDateYYYYMMDDLoose(v) {
-  // aceita "YYYY-MM-DD" ou "YYYY-MM-DDTHH:mm" e devolve apenas a data
+function normalizeDateToYYYYMMDD(v) {
   if (v == null) return "";
   const s = String(v).trim();
-  if (!s) return "";
-  return s.includes("T") ? s.split("T")[0] : s;
+  // aceita "YYYY-MM-DD" ou ISO "YYYY-MM-DDTHH:mm..."
+  return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
 function buildSearchPayload(input = {}) {
@@ -67,14 +66,8 @@ function buildPatientCreatePayload(input = {}) {
     const cityId = toId(a.cityId);
     const countryId = toId(a.countryId) ?? 1;
 
-    if (!addressTypeId)
-      throw new Error(
-        "patient.create: address.addressTypeId é obrigatório quando address é informado"
-      );
-    if (!cityId)
-      throw new Error(
-        "patient.create: address.cityId é obrigatório quando address é informado"
-      );
+    if (!addressTypeId) throw new Error("patient.create: address.addressTypeId é obrigatório quando address é informado");
+    if (!cityId) throw new Error("patient.create: address.cityId é obrigatório quando address é informado");
 
     payload.address = {
       address: a.address ?? "",
@@ -90,15 +83,6 @@ function buildPatientCreatePayload(input = {}) {
   }
 
   return payload;
-}
-
-/**
- * UPDATE patient — mesmo payload do create + id
- */
-function buildPatientUpdatePayload(input = {}) {
-  const id = toId(input.id ?? input.patientId);
-  if (!id) throw new Error("patient.update: id inválido");
-  return { id, ...buildPatientCreatePayload(input) };
 }
 
 async function GET(path) {
@@ -127,10 +111,7 @@ export async function runRPC(op, data = {}) {
     // STATUS simpleList
     if (op === "status.simpleList") {
       const type = String(data?.type || "").trim();
-      if (!type)
-        return contract.error(
-          "status.simpleList: type é obrigatório (patientStatus|scheduleStatus)"
-        );
+      if (!type) return contract.error("status.simpleList: type é obrigatório (patientStatus|scheduleStatus)");
       const r = await GET(`/partners/status/${type}/simpleList`);
       return contract.ok({ data: r, nextAction: "status_list" });
     }
@@ -140,23 +121,30 @@ export async function runRPC(op, data = {}) {
       const argument = String(data?.argument ?? "").trim();
       if (!argument) {
         return contract.fallback({
-          message:
-            "Perfeito. Me informe seu nome completo e CPF para eu localizar seu cadastro.",
+          message: "Perfeito. Me informe seu nome completo e CPF para eu localizar seu cadastro.",
+          nextAction: "ask_name_cpf",
+        });
+      }
+      const digits = onlyDigits(argument);
+      if (digits.length === 10 || digits.length === 11) {
+        return contract.fallback({
+          message: "Perfeito. Me informe seu nome completo e CPF para eu localizar seu cadastro.",
           nextAction: "ask_name_cpf",
         });
       }
 
-      const r = await POST(
-        "/partners/patient/search",
-        buildSearchPayload({ ...data, argument })
-      );
+      const r = await POST("/partners/patient/search", {
+        argument,
+        page: 0,
+        sizePage: 25,
+        fieldSort: "name",
+        sortDirection: "asc",
+      });
 
-      const list = Array.isArray(r?.data) ? r.data : Array.isArray(r) ? r : [];
-
-      if (list.length === 0) {
+      const list = Array.isArray(r?.content) ? r.content : [];
+      if (!list.length) {
         return contract.ok({
-          message:
-            "Certo. Não encontrei cadastro com esses dados. Posso fazer seu cadastro agora.",
+          message: "Certo. Não encontrei cadastro com esses dados. Posso fazer seu cadastro agora.",
           data: [],
           nextAction: "patient_not_found",
         });
@@ -164,8 +152,7 @@ export async function runRPC(op, data = {}) {
 
       if (list.length > 1) {
         return contract.ok({
-          message:
-            "Entendi. Encontrei mais de um cadastro parecido. Qual é o seu?",
+          message: "Entendi. Encontrei mais de um cadastro parecido. Qual é o seu?",
           options: list.slice(0, 5).map((p) => ({
             id: p.id ?? null,
             label: `${p.name || "Paciente"}${p.cpf ? " — CPF " + p.cpf : ""}`,
@@ -188,31 +175,11 @@ export async function runRPC(op, data = {}) {
     // PATIENT CREATE
     if (op === "patient.create") {
       const payload = buildPatientCreatePayload(data || {});
-      if (!payload.name)
-        return contract.error("patient.create: name é obrigatório");
-      if (!payload.cpf || payload.cpf.length !== 11)
-        return contract.error("patient.create: CPF inválido");
-      if (!payload.birthday)
-        return contract.error(
-          "patient.create: birthday é obrigatório (YYYY-MM-DD)"
-        );
+      if (!payload.name) return contract.error("patient.create: name é obrigatório");
+      if (!payload.cpf || payload.cpf.length !== 11) return contract.error("patient.create: CPF inválido");
+      if (!payload.birthday) return contract.error("patient.create: birthday é obrigatório (YYYY-MM-DD)");
       const r = await POST("/partners/patient", payload);
       return contract.ok({ data: r?.data ?? r, nextAction: "patient_created" });
-    }
-
-    // PATIENT UPDATE
-    if (op === "patient.update") {
-      const payload = buildPatientUpdatePayload(data || {});
-      if (!payload.name)
-        return contract.error("patient.update: name é obrigatório");
-      if (!payload.cpf || payload.cpf.length !== 11)
-        return contract.error("patient.update: CPF inválido");
-      if (!payload.birthday)
-        return contract.error(
-          "patient.update: birthday é obrigatório (YYYY-MM-DD)"
-        );
-      const r = await PUT("/partners/patient", payload);
-      return contract.ok({ data: r?.data ?? r, nextAction: "patient_updated" });
     }
 
     // PATIENT DELETE
@@ -225,46 +192,33 @@ export async function runRPC(op, data = {}) {
 
     // SPECIALITY / PROFESSIONAL search
     if (op === "speciality.search") {
-      const r = await POST(
-        "/partners/speciality/search",
-        buildSearchPayload(data || {})
-      );
+      const r = await POST("/partners/speciality/search", buildSearchPayload(data || {}));
       return contract.ok({ data: r, nextAction: "specialities_list" });
     }
-    if (op === "professional.search") {
-      const r = await POST(
-        "/partners/performer/search",
-        buildSearchPayload(data || {})
-      );
+    // Aliases de linguagem (para o agente não travar em semântica)
+    if (op === "professional.search" || op === "doctor.search" || op === "medico.search") {
+      const r = await POST("/partners/performer/search", buildSearchPayload(data || {}));
       return contract.ok({ data: r, nextAction: "professionals_list" });
     }
 
     // PROCEDURE / INSURANCE search (necessário para agendar)
     if (op === "procedure.search") {
-      const r = await POST(
-        "/partners/procedure/search",
-        buildSearchPayload(data || {})
-      );
+      const r = await POST("/partners/procedure/search", buildSearchPayload(data || {}));
       return contract.ok({ data: r, nextAction: "procedures_list" });
     }
     if (op === "insurance.search") {
-      const r = await POST(
-        "/partners/insurance/search",
-        buildSearchPayload(data || {})
-      );
+      const r = await POST("/partners/insurance/search", buildSearchPayload(data || {}));
       return contract.ok({ data: r, nextAction: "insurances_list" });
     }
 
     // SCHEDULE SEARCH (v2) — busca agenda/agendamentos
-    // Aceita alias "schedule.search.v2" para evitar mismatch com o agente.
+    // Alias: alguns fluxos chamam "schedule.search.v2"
     if (op === "schedule.search" || op === "schedule.search.v2") {
-      const started = toDateYYYYMMDDLoose(data?.started);
-      const ended = toDateYYYYMMDDLoose(data?.ended);
+      const started = normalizeDateToYYYYMMDD(data?.started);
+      const ended = normalizeDateToYYYYMMDD(data?.ended);
 
       if (!isDateYYYYMMDD(started) || !isDateYYYYMMDD(ended)) {
-        return contract.error(
-          "schedule.search: started/ended devem ser YYYY-MM-DD (pode enviar com hora que eu corto)"
-        );
+        return contract.error("schedule.search: started/ended devem ser YYYY-MM-DD (pode vir com hora, ex.: 2026-02-06T09:00)");
       }
 
       const body = {
@@ -284,93 +238,6 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r, nextAction: "schedules_list" });
     }
 
-    // SCHEDULE CONFIRM — POST /partners/scheduleConfirm
-    if (op === "schedule.confirm") {
-      const scheduleId = toId(data?.scheduleId ?? data?.id);
-      if (!scheduleId)
-        return contract.error("schedule.confirm: scheduleId é obrigatório");
-
-      try {
-        const r = await POST("/partners/scheduleConfirm", { scheduleId });
-        return contract.ok({
-          data: r?.data ?? r,
-          nextAction: "schedule_confirmed",
-        });
-      } catch {
-        // fallback: marcar patientStatus C
-        const r = await POST(`/partners/${scheduleId}/patientStatus/C`, {});
-        return contract.ok({
-          data: r?.data ?? r,
-          nextAction: "schedule_confirmed",
-        });
-      }
-    }
-
-    // SCHEDULE CANCEL — POST /partners/scheduleCancel
-    if (op === "schedule.cancel") {
-      const scheduleId = toId(data?.scheduleId ?? data?.id);
-      if (!scheduleId)
-        return contract.error("schedule.cancel: scheduleId é obrigatório");
-
-      try {
-        const r = await POST("/partners/scheduleCancel", { scheduleId });
-        return contract.ok({
-          data: r?.data ?? r,
-          nextAction: "schedule_cancelled",
-        });
-      } catch {
-        // fallback: marcar patientStatus B
-        const r = await POST(`/partners/${scheduleId}/patientStatus/B`, {});
-        return contract.ok({
-          data: r?.data ?? r,
-          nextAction: "schedule_cancelled",
-        });
-      }
-    }
-
-    // SCHEDULE RESCHEDULE — PUT /partners/schedule (mesma regra do book)
-    if (op === "schedule.reschedule") {
-      const scheduleId = toId(data?.scheduleId);
-      const insuranceId = toId(data?.insuranceId);
-      const procedureId = toId(data?.procedureId);
-      const patientId = toId(data?.patientId);
-
-      if (!scheduleId)
-        return contract.error("schedule.reschedule: scheduleId é obrigatório");
-      if (!insuranceId)
-        return contract.error("schedule.reschedule: insuranceId é obrigatório");
-      if (!procedureId)
-        return contract.error("schedule.reschedule: procedureId é obrigatório");
-
-      let patient = null;
-      if (!patientId) {
-        const p = data?.patient || {};
-        if (!p?.name || !p?.birthday || !p?.phoneStandart) {
-          return contract.error(
-            "schedule.reschedule: patientId ou patient{name,birthday,phoneStandart} é obrigatório"
-          );
-        }
-        patient = {
-          name: String(p.name).trim(),
-          birthday: String(p.birthday).trim(),
-          cpf: p.cpf ? onlyDigits(p.cpf) : "",
-          cns: p.cns ?? "",
-          phoneStandart: onlyDigits(p.phoneStandart),
-        };
-      }
-
-      const body = {
-        scheduleId,
-        insuranceId,
-        procedureId,
-        patientId: patientId ?? null,
-        patient: patientId ? null : patient,
-      };
-
-      const r = await PUT("/partners/schedule", body);
-      return contract.ok({ data: r, nextAction: "schedule_rescheduled" });
-    }
-
     // SCHEDULE BOOK — PUT /partners/schedule
     if (op === "schedule.book") {
       const scheduleId = toId(data?.scheduleId);
@@ -387,9 +254,7 @@ export async function runRPC(op, data = {}) {
       if (!patientId) {
         const p = data?.patient || {};
         if (!p?.name || !p?.birthday || !p?.phoneStandart) {
-          return contract.error(
-            "schedule.book: patientId ou patient{name,birthday,phoneStandart} é obrigatório"
-          );
+          return contract.error("schedule.book: patientId ou patient{name,birthday,phoneStandart} é obrigatório");
         }
         patient = {
           name: String(p.name).trim(),
@@ -412,10 +277,64 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r, nextAction: "schedule_booked" });
     }
 
+    // SCHEDULE CONFIRM — POST /partners/scheduleConfirm
+    if (op === "schedule.confirm") {
+      const scheduleId = toId(data?.scheduleId ?? data?.id);
+      if (!scheduleId) return contract.error("schedule.confirm: scheduleId é obrigatório");
+      const r = await POST("/partners/scheduleConfirm", { scheduleId });
+      return contract.ok({ data: r, nextAction: "schedule_confirmed" });
+    }
+
+    // SCHEDULE CONFIRM (GET) — /partners/scheduleConfirm/:scheduleId
+    if (op === "schedule.confirm.get") {
+      const scheduleId = toId(data?.scheduleId ?? data?.id);
+      if (!scheduleId) return contract.error("schedule.confirm.get: scheduleId é obrigatório");
+      const r = await GET(`/partners/scheduleConfirm/${scheduleId}`);
+      return contract.ok({ data: r, nextAction: "schedule_confirm_loaded" });
+    }
+
+    // SCHEDULE CANCEL — POST /partners/scheduleCancel
+    if (op === "schedule.cancel") {
+      const scheduleId = toId(data?.scheduleId ?? data?.id);
+      if (!scheduleId) return contract.error("schedule.cancel: scheduleId é obrigatório");
+      const r = await POST("/partners/scheduleCancel", { scheduleId });
+      return contract.ok({ data: r, nextAction: "schedule_canceled" });
+    }
+
+    // BOOK + CONFIRM (atalho) — evita o agente ficar em loop / esquecer a confirmação
+    if (op === "schedule.bookAndConfirm") {
+      // reusa o fluxo do schedule.book (mesmas regras)
+      const booked = await runRPC("schedule.book", data);
+      if (booked.status !== "ok") return booked;
+
+      // tenta extrair scheduleId do retorno do Clinicall
+      const clinicallResp = booked?.data;
+      const scheduleId =
+        toId(clinicallResp?.data?.id) ||
+        toId(clinicallResp?.data?.data?.id) ||
+        toId(clinicallResp?.id) ||
+        toId(data?.scheduleId);
+
+      if (!scheduleId) {
+        return contract.ok({
+          data: booked.data,
+          nextAction: "schedule_booked",
+          message: "Agendamento criado. Não consegui identificar o ID para confirmar automaticamente; chame schedule.confirm com o scheduleId retornado.",
+        });
+      }
+
+      const confirmed = await runRPC("schedule.confirm", { scheduleId });
+      if (confirmed.status !== "ok") return confirmed;
+
+      return contract.ok({
+        data: { booked: booked.data, confirmed: confirmed.data, scheduleId },
+        nextAction: "schedule_booked_confirmed",
+      });
+    }
+
     return contract.error("Operação não suportada");
   } catch (err) {
-    const details =
-      err?.response?.data || err?.data || err?.message || String(err);
+    const details = err?.response?.data || err?.data || err?.message || String(err);
     console.error("RPC ENGINE ERROR:", err?.message || err);
     if (err?.response?.status) console.error("UPSTREAM STATUS:", err.response.status);
     if (err?.response?.data) console.error("UPSTREAM DATA:", err.response.data);
