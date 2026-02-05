@@ -13,25 +13,6 @@ const router = Router();
 /**
  * Utils
  */
-function onlyDigits(v) {
-  return String(v ?? "").replace(/\D+/g, "");
-}
-
-function normalizeBRPhoneDigits(raw) {
-  let d = onlyDigits(raw);
-
-  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) {
-    d = d.slice(2);
-  }
-
-  return d;
-}
-
-function looksLikeBRPhone(raw) {
-  const d = normalizeBRPhoneDigits(raw);
-  return d.length === 10 || d.length === 11;
-}
-
 function buildSearchPayload({
   argument,
   page = 0,
@@ -51,23 +32,6 @@ async function upstreamPatientSearch(payload) {
     : clinicall("POST", "/partners/patient/search", payload);
 }
 
-function toPageResult(found, sizePage = 25) {
-  const content = Array.isArray(found) ? found : [];
-  return {
-    content,
-    pageable: {},
-    totalPages: content.length ? 1 : 0,
-    totalElements: content.length,
-    last: true,
-    numberOfElements: content.length,
-    size: sizePage,
-    number: 0,
-    sort: {},
-    first: true,
-    empty: content.length === 0,
-  };
-}
-
 function buildPatientPayload(input = {}) {
   const { name, cpf, phone, birthdate, ...rest } = input;
 
@@ -75,6 +39,7 @@ function buildPatientPayload(input = {}) {
     ...rest,
     name: name ?? rest.name,
     cpf: cpf ?? rest.cpf,
+    // mantém telefone no cadastro (se o sistema usar), mas NÃO usa telefone para busca
     phoneStandart: rest.phoneStandart ?? phone ?? rest.phone,
     birthDate: rest.birthDate ?? birthdate ?? rest.birthdate,
   };
@@ -167,84 +132,29 @@ router.get("/birthday/today-month/:month/:day", async (req, res, next) => {
 });
 
 /**
- * SEARCH com heurística de telefone
+ * SEARCH (SEM telefone)
+ * A Clinicall não tem endpoint de busca por telefone.
+ * Logo: busca é exclusivamente por CPF ou nome via /partners/patient/search.
  */
 router.post("/search", async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const rawArgument = body.argument ?? "";
+    const argument = body.argument ?? "";
     const page = Number.isFinite(body.page) ? body.page : 0;
     const sizePage = Number.isFinite(body.sizePage) ? body.sizePage : 25;
     const fieldSort = body.fieldSort ?? "name";
     const sortDirection = body.sortDirection ?? "asc";
 
-    const defaultPayload = buildSearchPayload({
-      argument: rawArgument,
+    const payload = buildSearchPayload({
+      argument,
       page,
       sizePage,
       fieldSort,
       sortDirection,
     });
 
-    if (!looksLikeBRPhone(rawArgument)) {
-      const data = await upstreamPatientSearch(defaultPayload);
-      res.json({ ok: true, data });
-      return;
-    }
-
-    const phone = normalizeBRPhoneDigits(rawArgument);
-    const variations = [];
-
-    if (phone) variations.push(phone);
-    if (phone.length >= 9) variations.push(phone.slice(-9));
-    if (phone.length >= 8) variations.push(phone.slice(-8));
-
-    for (const v of variations) {
-      const payload = buildSearchPayload({
-        argument: v,
-        page: 0,
-        sizePage,
-        fieldSort,
-        sortDirection,
-      });
-
-      const data = await upstreamPatientSearch(payload);
-
-      if (data?.content?.length) {
-        res.json({ ok: true, data });
-        return;
-      }
-    }
-
-    const MAX_PAGES = 5;
-    const SCAN_SIZE = 100;
-    const found = [];
-
-    for (let p = 0; p < MAX_PAGES; p++) {
-      const scanPayload = buildSearchPayload({
-        argument: "",
-        page: p,
-        sizePage: SCAN_SIZE,
-        fieldSort,
-        sortDirection,
-      });
-
-      const data = await upstreamPatientSearch(scanPayload);
-      const list = Array.isArray(data?.content) ? data.content : [];
-
-      for (const item of list) {
-        const itemPhone = normalizeBRPhoneDigits(
-          item?.phoneStandart ?? item?.phone ?? ""
-        );
-        if (itemPhone && itemPhone === phone) found.push(item);
-      }
-
-      if (list.length < SCAN_SIZE) break;
-      if (found.length) break;
-    }
-
-    const dataOut = toPageResult(found, sizePage);
-    res.json({ ok: true, data: dataOut });
+    const data = await upstreamPatientSearch(payload);
+    res.json({ ok: true, data });
   } catch (err) {
     next(err);
   }
