@@ -5,84 +5,24 @@ import * as contract from "./contract.js";
 function onlyDigits(v) {
   return String(v ?? "").replace(/\D+/g, "");
 }
+
 function toId(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+
 function isDateYYYYMMDD(s) {
-  return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (!s) return false;
+  const v = String(s).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(v);
 }
 
-function normalizeDateToYYYYMMDD(v) {
-  if (v == null) return "";
-  const s = String(v).trim();
-  // aceita "YYYY-MM-DD" ou ISO "YYYY-MM-DDTHH:mm..."
-  return s.length >= 10 ? s.slice(0, 10) : s;
-}
-
-function buildSearchPayload(input = {}) {
-  return {
-    argument: input.argument ?? "",
-    page: Number.isFinite(input.page) ? input.page : 0,
-    sizePage: Number.isFinite(input.sizePage) ? input.sizePage : 25,
-    fieldSort: input.fieldSort ?? "name",
-    sortDirection: input.sortDirection ?? "asc",
-  };
-}
-
-/**
- * CREATE patient — IDs planos (já validado por você)
- */
-function buildPatientCreatePayload(input = {}) {
-  const payload = {};
-  payload.name = String(input.name ?? "").trim();
-  payload.cpf = onlyDigits(input.cpf);
-  const birthday = input.birthday ?? input.birthDate ?? input.birthdate;
-  if (birthday != null) payload.birthday = String(birthday).trim();
-
-  const phone = onlyDigits(input.phoneStandart ?? input.phone);
-  if (phone) payload.phoneStandart = phone;
-
-  const genderId = toId(input.genderId);
-  if (genderId) payload.genderId = genderId;
-
-  const civilStatusId = toId(input.civilStatusId);
-  if (civilStatusId) payload.civilStatusId = civilStatusId;
-
-  const insuranceId = toId(input.insuranceId);
-  if (insuranceId) payload.insuranceId = insuranceId;
-
-  const companyId = toId(input.companyId);
-  if (companyId) payload.companyId = companyId;
-
-  if (input.active !== undefined) payload.active = Boolean(input.active);
-  if (input.mother !== undefined) payload.mother = input.mother;
-  if (input.email !== undefined) payload.email = input.email;
-  if (input.identity !== undefined) payload.identity = input.identity;
-
-  if (input.address) {
-    const a = input.address;
-    const addressTypeId = toId(a.addressTypeId);
-    const cityId = toId(a.cityId);
-    const countryId = toId(a.countryId) ?? 1;
-
-    if (!addressTypeId) throw new Error("patient.create: address.addressTypeId é obrigatório quando address é informado");
-    if (!cityId) throw new Error("patient.create: address.cityId é obrigatório quando address é informado");
-
-    payload.address = {
-      address: a.address ?? "",
-      district: a.district ?? "",
-      zipcode: onlyDigits(a.zipcode),
-      description: a.description ?? null,
-      addon: a.addon ?? null,
-      number: a.number != null ? String(a.number) : null,
-      addressTypeId,
-      cityId,
-      countryId,
-    };
-  }
-
-  return payload;
+function normalizeText(s) {
+  return String(s ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 async function GET(path) {
@@ -98,7 +38,61 @@ async function DEL(path) {
   return clinicall.request(path, { method: "DELETE" });
 }
 
-export async function runRPC(op, data = {}) {
+// PATIENT payload (Clinicall exige campos bem específicos)
+function buildPatientCreatePayload(input = {}) {
+  const name = String(input?.name ?? "").trim();
+  const cpf = onlyDigits(input?.cpf ?? "");
+  const birthday = String(input?.birthday ?? input?.birthDate ?? "").trim(); // aceita birthDate como alias, mas envia birthday
+
+  const payload = {
+    name,
+    cpf,
+    birthday,
+    phoneStandart: input?.phoneStandart ? onlyDigits(input.phoneStandart) : undefined,
+
+    // Clinicall espera IDs (não objetos)
+    genderId: input?.genderId ?? (input?.gender?.id ? Number(input.gender.id) : undefined),
+    civilStatusId: input?.civilStatusId ?? (input?.civilStatus?.id ? Number(input.civilStatus.id) : undefined),
+    insuranceId: input?.insuranceId ?? (input?.insurance?.id ? Number(input.insurance.id) : undefined),
+
+    // address.*Id
+    address: input?.address
+      ? {
+          address: input.address.address ?? undefined,
+          district: input.address.district ?? undefined,
+          zipcode: input.address.zipcode ?? undefined,
+          description: input.address.description ?? undefined,
+          number: input.address.number ?? undefined,
+          addon: input.address.addon ?? undefined,
+          addressTypeId: input.address.addressTypeId ?? undefined,
+          cityId: input.address.cityId ?? undefined,
+          countryId: input.address.countryId ?? undefined,
+        }
+      : undefined,
+  };
+
+  // remove undefined
+  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+  if (payload.address) {
+    Object.keys(payload.address).forEach((k) => payload.address[k] === undefined && delete payload.address[k]);
+    if (Object.keys(payload.address).length === 0) delete payload.address;
+  }
+
+  return payload;
+}
+
+// Search padrão do Clinicall (*/search)
+function buildSearchBody(input = {}) {
+  return {
+    argument: String(input?.argument ?? "").trim(),
+    page: Number.isFinite(Number(input?.page)) ? Number(input.page) : 0,
+    sizePage: Number.isFinite(Number(input?.sizePage)) ? Number(input.sizePage) : 25,
+    fieldSort: String(input?.fieldSort ?? "name"),
+    sortDirection: String(input?.sortDirection ?? "asc"),
+  };
+}
+
+export async function runRpc({ op, data } = {}) {
   op = String(op || "").trim();
 
   try {
@@ -116,52 +110,43 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r, nextAction: "status_list" });
     }
 
-    // PATIENT SEARCH (sem telefone)
+    // PATIENT SEARCH
     if (op === "patient.search") {
-      const argument = String(data?.argument ?? "").trim();
-      if (!argument) {
-        return contract.fallback({
-          message: "Perfeito. Me informe seu nome completo e CPF para eu localizar seu cadastro.",
-          nextAction: "ask_name_cpf",
-        });
-      }
-      const digits = onlyDigits(argument);
-      if (digits.length === 10 || digits.length === 11) {
-        return contract.fallback({
-          message: "Perfeito. Me informe seu nome completo e CPF para eu localizar seu cadastro.",
-          nextAction: "ask_name_cpf",
-        });
-      }
+      const body = buildSearchBody(data || {});
+      if (!body.argument) return contract.error("patient.search: argument é obrigatório (cpf ou nome)");
 
-      const r = await POST("/partners/patient/search", {
-        argument,
-        page: 0,
-        sizePage: 25,
-        fieldSort: "name",
-        sortDirection: "asc",
-      });
+      const r = await POST("/partners/patient/search", body);
 
-      const list = Array.isArray(r?.content) ? r.content : [];
-      if (!list.length) {
+      // normaliza opções para UX do agente
+      const list = Array.isArray(r?.content) ? r.content : Array.isArray(r?.data?.content) ? r.data.content : [];
+      const options = list.slice(0, 25).map((p) => ({
+        id: p.id,
+        label: `${String(p.name || "").trim()} — CPF ${String(p.cpf || "").trim()}`.trim(),
+      }));
+
+      if (!options.length) {
         return contract.ok({
-          message: "Certo. Não encontrei cadastro com esses dados. Posso fazer seu cadastro agora.",
           data: [],
+          options: [],
           nextAction: "patient_not_found",
+          message: "Certo. Não encontrei cadastro com esses dados. Posso fazer seu cadastro agora.",
         });
       }
 
-      if (list.length > 1) {
+      if (options.length === 1) {
         return contract.ok({
-          message: "Entendi. Encontrei mais de um cadastro parecido. Qual é o seu?",
-          options: list.slice(0, 5).map((p) => ({
-            id: p.id ?? null,
-            label: `${p.name || "Paciente"}${p.cpf ? " — CPF " + p.cpf : ""}`,
-          })),
-          nextAction: "choose_patient",
+          data: { id: options[0].id, label: options[0].label },
+          options: [],
+          nextAction: "patient_found_single",
         });
       }
 
-      return contract.ok({ data: list[0], nextAction: "patient_found" });
+      return contract.ok({
+        data: {},
+        options,
+        nextAction: "choose_patient",
+        message: "Entendi. Encontrei mais de um cadastro parecido. Qual é o seu?",
+      });
     }
 
     // PATIENT GET
@@ -169,7 +154,7 @@ export async function runRPC(op, data = {}) {
       const id = toId(data?.id ?? data?.patientId);
       if (!id) return contract.error("patient.get: id inválido");
       const r = await GET(`/partners/patient/${id}`);
-      return contract.ok({ data: r?.data ?? r, nextAction: "patient_loaded" });
+      return contract.ok({ data: r, nextAction: "patient_loaded" });
     }
 
     // PATIENT CREATE
@@ -178,6 +163,7 @@ export async function runRPC(op, data = {}) {
       if (!payload.name) return contract.error("patient.create: name é obrigatório");
       if (!payload.cpf || payload.cpf.length !== 11) return contract.error("patient.create: CPF inválido");
       if (!payload.birthday) return contract.error("patient.create: birthday é obrigatório (YYYY-MM-DD)");
+
       const r = await POST("/partners/patient", payload);
       return contract.ok({ data: r?.data ?? r, nextAction: "patient_created" });
     }
@@ -190,35 +176,58 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r?.data ?? r, nextAction: "patient_deleted" });
     }
 
-    // SPECIALITY / PROFESSIONAL search
+    // SPECIALITY search
     if (op === "speciality.search") {
-      const r = await POST("/partners/speciality/search", buildSearchPayload(data || {}));
+      const body = buildSearchBody(data || {});
+      if (!body.argument) return contract.error("speciality.search: argument é obrigatório");
+      const r = await POST("/partners/speciality/search", body);
       return contract.ok({ data: r, nextAction: "specialities_list" });
     }
-    // Aliases de linguagem (para o agente não travar em semântica)
-    if (op === "professional.search" || op === "doctor.search" || op === "medico.search") {
-      const r = await POST("/partners/performer/search", buildSearchPayload(data || {}));
+
+    // PROFESSIONAL search
+    if (op === "professional.search") {
+      const body = buildSearchBody(data || {});
+      if (!body.argument) return contract.error("professional.search: argument é obrigatório");
+      const r = await POST("/partners/professional/search", body);
       return contract.ok({ data: r, nextAction: "professionals_list" });
     }
 
-    // PROCEDURE / INSURANCE search (necessário para agendar)
+    // DOCTOR search (alias p/ profissional executante)
+    if (op === "doctor.search") {
+      const body = buildSearchBody(data || {});
+      if (!body.argument) return contract.error("doctor.search: argument é obrigatório");
+      const r = await POST("/partners/professional/searchPerformer", body);
+      return contract.ok({ data: r, nextAction: "professionals_list" });
+    }
+
+    // PROCEDURE search
     if (op === "procedure.search") {
-      const r = await POST("/partners/procedure/search", buildSearchPayload(data || {}));
+      const body = buildSearchBody(data || {});
+      if (!body.argument) return contract.error("procedure.search: argument é obrigatório");
+      const r = await POST("/partners/procedure/search", body);
       return contract.ok({ data: r, nextAction: "procedures_list" });
     }
+
+    // INSURANCE search
     if (op === "insurance.search") {
-      const r = await POST("/partners/insurance/search", buildSearchPayload(data || {}));
+      const body = buildSearchBody(data || {});
+      if (!body.argument) return contract.error("insurance.search: argument é obrigatório");
+      const r = await POST("/partners/insurance/search", body);
       return contract.ok({ data: r, nextAction: "insurances_list" });
     }
 
-    // SCHEDULE SEARCH (v2) — busca agenda/agendamentos
-    // Alias: alguns fluxos chamam "schedule.search.v2"
+    // SCHEDULE SEARCH (v2) — POST /partners/schedule/v2/search
+    // Aceita op "schedule.search" e alias "schedule.search.v2"
     if (op === "schedule.search" || op === "schedule.search.v2") {
-      const started = normalizeDateToYYYYMMDD(data?.started);
-      const ended = normalizeDateToYYYYMMDD(data?.ended);
+      const startedRaw = String(data?.started ?? "");
+      const endedRaw = String(data?.ended ?? "");
+
+      // API v2/search usa datas (YYYY-MM-DD). Se vier com hora, corta.
+      const started = startedRaw.includes("T") ? startedRaw.split("T")[0] : startedRaw;
+      const ended = endedRaw.includes("T") ? endedRaw.split("T")[0] : endedRaw;
 
       if (!isDateYYYYMMDD(started) || !isDateYYYYMMDD(ended)) {
-        return contract.error("schedule.search: started/ended devem ser YYYY-MM-DD (pode vir com hora, ex.: 2026-02-06T09:00)");
+        return contract.error("schedule.search: started/ended devem ser YYYY-MM-DD (sem hora)");
       }
 
       const body = {
@@ -277,15 +286,9 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r, nextAction: "schedule_booked" });
     }
 
-    // SCHEDULE CONFIRM — POST /partners/scheduleConfirm
-    if (op === "schedule.confirm") {
-      const scheduleId = toId(data?.scheduleId ?? data?.id);
-      if (!scheduleId) return contract.error("schedule.confirm: scheduleId é obrigatório");
-      const r = await POST("/partners/scheduleConfirm", { scheduleId });
-      return contract.ok({ data: r, nextAction: "schedule_confirmed" });
-    }
-
-    // SCHEDULE CONFIRM (GET) — /partners/scheduleConfirm/:scheduleId
+    // SCHEDULE CONFIRM — GET/POST /partners/scheduleConfirm
+    // - GET /partners/scheduleConfirm/:scheduleId (buscar status)
+    // - POST /partners/scheduleConfirm (confirmar)
     if (op === "schedule.confirm.get") {
       const scheduleId = toId(data?.scheduleId ?? data?.id);
       if (!scheduleId) return contract.error("schedule.confirm.get: scheduleId é obrigatório");
@@ -293,41 +296,47 @@ export async function runRPC(op, data = {}) {
       return contract.ok({ data: r, nextAction: "schedule_confirm_loaded" });
     }
 
+    if (op === "schedule.confirm") {
+      const scheduleId = toId(data?.scheduleId ?? data?.id);
+      if (!scheduleId) return contract.error("schedule.confirm: scheduleId é obrigatório");
+      const r = await POST("/partners/scheduleConfirm", { scheduleId });
+      return contract.ok({ data: r, nextAction: "schedule_confirmed" });
+    }
+
     // SCHEDULE CANCEL — POST /partners/scheduleCancel
     if (op === "schedule.cancel") {
       const scheduleId = toId(data?.scheduleId ?? data?.id);
       if (!scheduleId) return contract.error("schedule.cancel: scheduleId é obrigatório");
       const r = await POST("/partners/scheduleCancel", { scheduleId });
-      return contract.ok({ data: r, nextAction: "schedule_canceled" });
+      return contract.ok({ data: r, nextAction: "schedule_cancelled" });
     }
 
-    // BOOK + CONFIRM (atalho) — evita o agente ficar em loop / esquecer a confirmação
+    // BOOK + CONFIRM (atalho) — usa schedule.book e depois schedule.confirm
     if (op === "schedule.bookAndConfirm") {
-      // reusa o fluxo do schedule.book (mesmas regras)
-      const booked = await runRPC("schedule.book", data);
-      if (booked.status !== "ok") return booked;
+      const scheduleId = toId(data?.scheduleId);
+      const insuranceId = toId(data?.insuranceId);
+      const procedureId = toId(data?.procedureId);
+      const patientId = toId(data?.patientId);
 
-      // tenta extrair scheduleId do retorno do Clinicall
-      const clinicallResp = booked?.data;
-      const scheduleId =
-        toId(clinicallResp?.data?.id) ||
-        toId(clinicallResp?.data?.data?.id) ||
-        toId(clinicallResp?.id) ||
-        toId(data?.scheduleId);
+      if (!scheduleId) return contract.error("schedule.bookAndConfirm: scheduleId é obrigatório");
+      if (!insuranceId) return contract.error("schedule.bookAndConfirm: insuranceId é obrigatório");
+      if (!procedureId) return contract.error("schedule.bookAndConfirm: procedureId é obrigatório");
+      if (!patientId) return contract.error("schedule.bookAndConfirm: patientId é obrigatório");
 
-      if (!scheduleId) {
-        return contract.ok({
-          data: booked.data,
-          nextAction: "schedule_booked",
-          message: "Agendamento criado. Não consegui identificar o ID para confirmar automaticamente; chame schedule.confirm com o scheduleId retornado.",
-        });
-      }
+      // 1) book
+      const booked = await PUT("/partners/schedule", {
+        scheduleId,
+        insuranceId,
+        procedureId,
+        patientId,
+        patient: null,
+      });
 
-      const confirmed = await runRPC("schedule.confirm", { scheduleId });
-      if (confirmed.status !== "ok") return confirmed;
+      // 2) confirm
+      const confirmed = await POST("/partners/scheduleConfirm", { scheduleId });
 
       return contract.ok({
-        data: { booked: booked.data, confirmed: confirmed.data, scheduleId },
+        data: { booked, confirmed },
         nextAction: "schedule_booked_confirmed",
       });
     }
