@@ -34,7 +34,7 @@ async function readJsonSafe(resp) {
 
 function makeTenantHeaders() {
   const h = {};
-  if (TENANT_ID) h["X-Tenantid"] = TENANT_ID; // padrão que funcionou pra você
+  if (TENANT_ID) h["X-Tenantid"] = TENANT_ID;
   return h;
 }
 
@@ -51,6 +51,36 @@ async function fetchWithTimeout(url, init = {}) {
   } finally {
     clearTimeout(t);
   }
+}
+
+function buildClinicallError(resp, payload) {
+  const details = typeof payload === "string" ? payload : JSON.stringify(payload);
+  const err = new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
+  err.status = resp.status;
+  err.payload = payload;
+
+  // ✅ Normalização BFF: muitos "403" do Clinicall são regra/validação (não auth)
+  // Ex: "Id do Convênio não informado", "Formulário inválido..."
+  const msg = typeof payload === "object" && payload ? String(payload.message || "") : "";
+  const code = typeof payload === "object" && payload ? String(payload.code || "") : "";
+
+  if (resp.status === 403 && (code === "APPLICATION_EXCEPTION" || msg)) {
+    err.public = true;
+    err.status = 400; // trata como validação/domínio
+    err.code = "VALIDATION_ERROR";
+    err.publicMessage = msg || "Dados inválidos, verifique os campos.";
+    err.details = payload;
+  }
+
+  if (resp.status === 404) {
+    err.public = true;
+    err.status = 502;
+    err.code = "UPSTREAM_NOT_FOUND";
+    err.publicMessage = "Serviço do CRM não encontrou o recurso.";
+    err.details = payload;
+  }
+
+  return err;
 }
 
 async function doFetchJson(method, path, body, extraHeaders = {}) {
@@ -77,11 +107,7 @@ async function doFetchJson(method, path, body, extraHeaders = {}) {
       const payload = await readJsonSafe(resp);
 
       if (!resp.ok) {
-        const details = typeof payload === "string" ? payload : JSON.stringify(payload);
-        const err = new Error(`Clinicall error ${resp.status}: ${resp.statusText} :: ${details}`);
-        err.status = resp.status;
-        err.payload = payload;
-        throw err;
+        throw buildClinicallError(resp, payload);
       }
 
       return { resp, payload };
@@ -91,8 +117,12 @@ async function doFetchJson(method, path, body, extraHeaders = {}) {
       const status = e?.status;
       const msg = String(e?.message || "");
       const transient =
-        status === 502 || status === 503 || status === 504 ||
-        msg.includes("aborted") || msg.includes("Fetch failed") || msg.includes("network");
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        msg.includes("aborted") ||
+        msg.includes("Fetch failed") ||
+        msg.includes("network");
 
       if (!transient || i === tries - 1) break;
       await new Promise((r) => setTimeout(r, 250 * (i + 1)));
@@ -106,12 +136,7 @@ async function authenticate(force = false) {
   if (!LOGIN || !PASSWORD) throw new Error("Missing CLINICALL_LOGIN/CLINICALL_PASSWORD env");
   if (_authToken && !force) return _authToken;
 
-  const { resp, payload } = await doFetchJson(
-    "POST",
-    AUTH_PATH,
-    { login: LOGIN, password: PASSWORD },
-    {}
-  );
+  const { resp, payload } = await doFetchJson("POST", AUTH_PATH, { login: LOGIN, password: PASSWORD }, {});
 
   const token = resp.headers.get("x-auth-token") || resp.headers.get("X-Auth-Token") || "";
   if (!token) {

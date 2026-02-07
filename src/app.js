@@ -12,11 +12,10 @@ import insurancesRouter from "./routes/insurances.routes.js";
 import specialitiesRouter from "./routes/specialities.routes.js";
 import proceduresRouter from "./routes/procedures.routes.js";
 import ordersRouter from "./routes/orders.routes.js";
-import toolRouter from "./routes/tool.routes.js";
 
+import toolRouter from "./routes/tool.routes.js";
 import buildRoutesRouter from "./routes/__routes.routes.js";
 import rpcRouter from "./routes/rpc.routes.js";
-
 import indexRouter from "./routes/index.routes.js";
 
 const app = express();
@@ -36,12 +35,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// JSON
 app.use(express.json());
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "clinicall-hub" }));
 
-// ✅ versão do deploy (pra nunca mais ficar no escuro)
 app.get("/version", (_req, res) => {
   res.json({
     ok: true,
@@ -51,22 +48,14 @@ app.get("/version", (_req, res) => {
   });
 });
 
-// ✅ auth debug
+// Rotas
 app.use("/auth", authRouter);
-
-// ✅ index (telefone -> paciente)
 app.use("/index", indexRouter);
-
-// ✅ lista de rotas
 app.use("/__routes", buildRoutesRouter(app));
-
-// ✅ RPC
 app.use("/rpc", rpcRouter);
-
-// ✅ TOOL API (n8n/LLM chama só aqui)
 app.use("/tool", toolRouter);
 
-// rotas do hub
+// HUB APIs
 app.use("/patients", patientsRouter);
 app.use("/schedules", schedulesRouter);
 app.use("/schedule", schedulesRouter);
@@ -77,7 +66,7 @@ app.use("/specialities", specialitiesRouter);
 app.use("/procedures", proceduresRouter);
 app.use("/orders", ordersRouter);
 
-// domain tables
+// Domain tables
 import domainsRouter from "./routes/domains.routes.js";
 import parametersRouter from "./routes/parameters.routes.js";
 import clinicRouter from "./routes/clinic.routes.js";
@@ -85,14 +74,39 @@ app.use("/domains", domainsRouter);
 app.use("/parameters", parametersRouter);
 app.use("/clinic", clinicRouter);
 
-// handler de erro padrão
+// ✅ Handler de erro (corrigido: erros públicos não viram 500)
 app.use((err, req, res, _next) => {
+  const requestId = req?.requestId;
+
+  // Log estruturado mínimo
+  console.error(
+    JSON.stringify({
+      requestId,
+      method: req.method,
+      path: req.originalUrl,
+      errStatus: err?.status,
+      errCode: err?.code,
+      message: err?.message,
+    })
+  );
+
+  if (err?.public) {
+    const status = Number(err.status || 400);
+    return res.status(status).json({
+      ok: false,
+      error: err.code || "BAD_REQUEST",
+      details: err.publicMessage || err.message || "Erro",
+      upstream: err.details || err.payload || null,
+      requestId,
+    });
+  }
+
   const message = err?.message || String(err);
-  res.status(500).json({
+  return res.status(500).json({
     ok: false,
     error: "Internal Server Error",
     details: message,
-    requestId: req?.requestId,
+    requestId,
   });
 });
 
