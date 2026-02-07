@@ -12,6 +12,7 @@ import insurancesRouter from "./routes/insurances.routes.js";
 import specialitiesRouter from "./routes/specialities.routes.js";
 import proceduresRouter from "./routes/procedures.routes.js";
 import ordersRouter from "./routes/orders.routes.js";
+import toolRouter from "./routes/tool.routes.js";
 
 import buildRoutesRouter from "./routes/__routes.routes.js";
 import rpcRouter from "./routes/rpc.routes.js";
@@ -29,9 +30,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on("finish", () => {
     const ms = Date.now() - start;
-    console.log(
-      `[${requestId}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`
-    );
+    console.log(`[${requestId}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${ms}ms)`);
   });
 
   next();
@@ -40,9 +39,17 @@ app.use((req, res, next) => {
 // JSON
 app.use(express.json());
 
-app.get("/health", (_req, res) =>
-  res.json({ ok: true, service: "clinicall-hub" })
-);
+app.get("/health", (_req, res) => res.json({ ok: true, service: "clinicall-hub" }));
+
+// ✅ versão do deploy (pra nunca mais ficar no escuro)
+app.get("/version", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "clinicall-hub",
+    git_sha: process.env.GIT_SHA || "unknown",
+    build_time: process.env.BUILD_TIME || "unknown",
+  });
+});
 
 // ✅ auth debug
 app.use("/auth", authRouter);
@@ -55,6 +62,9 @@ app.use("/__routes", buildRoutesRouter(app));
 
 // ✅ RPC
 app.use("/rpc", rpcRouter);
+
+// ✅ TOOL API (n8n/LLM chama só aqui)
+app.use("/tool", toolRouter);
 
 // rotas do hub
 app.use("/patients", patientsRouter);
