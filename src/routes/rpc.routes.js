@@ -1,5 +1,5 @@
 import express from "express";
-import { runRpc } from "../orchestrator/rpcengine.js";
+import { runRpc } from "../orchestrator/rpcEngine.js";
 
 const router = express.Router();
 
