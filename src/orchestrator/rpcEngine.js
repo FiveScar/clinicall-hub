@@ -438,12 +438,16 @@ export async function runRpc({ op, data } = {}) {
         scheduleId: s.id,
         date: s.date,
         hour: s.hour,
-        performer: s.performer?.professional?.person?.name ?? "—",
-        performerId: s.performer?.id,
-        speciality: s.horary?.speciality?.name ?? "—",
-        specialityId: s.horary?.speciality?.id,
-        company: s.company?.name ?? "—",
-        companyId: s.company?.id,
+        performer: s.performer?.professional?.person?.name
+                   ?? s.performer?.name
+                   ?? data?.performerName ?? "—",
+        performerId: s.performer?.id ?? performerId,
+        speciality: s.horary?.speciality?.name
+                    ?? s.speciality?.name
+                    ?? data?.specialityName ?? "—",
+        specialityId: s.horary?.speciality?.id ?? specialityId,
+        company: s.company?.name ?? s.company?.alias ?? data?.companyName ?? "—",
+        companyId: s.company?.id ?? companyId,
       }));
 
       if (!slots.length) {
