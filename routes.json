@@ -1,0 +1,367 @@
+{
+  "ok": true,
+  "service": "clinicall-hub",
+  "count": 60,
+  "routes": [
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/__routes/"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/auth/ping"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/address"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/contacts"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/hours"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/info"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/instructions"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/insurance"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/messages"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/payment"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/clinic/services"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/companies/:id"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/companies/"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/domains/addressType/search"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/domains/city/search"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/domains/civilStatus/search"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/domains/country/search"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/domains/gender/search"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/domains/race/search"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/domains/state/search"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/health"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/index/patients/rebuild"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/index/patients/status"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/insurances/search"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/orders/:orderId"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/orders/"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/orders/schedule"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/parameters/"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/parameters/order-arrive/:companyId/:performerId"
+    },
+    {
+      "methods": [
+        "DELETE"
+      ],
+      "path": "/patients/:id"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/patients/:id"
+    },
+    {
+      "methods": [
+        "PUT"
+      ],
+      "path": "/patients/:id"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/patients/birthday/today-month/:day"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/patients/birthday/today-month/:month/:day"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/patients/"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/patients/search"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/procedures/search"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/professionals/:orderId"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/professionals/"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/professionals/schedule"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/rpc/"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedule/:id/cancel"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedule/:id/confirm"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedule/book"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedule/cancel"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedule/"
+    },
+    {
+      "methods": [
+        "PUT"
+      ],
+      "path": "/schedule/"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedule/reschedule"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedule/search"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/schedule/status/:type/simpleList"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedules/:id/cancel"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedules/:id/confirm"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedules/book"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedules/cancel"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedules/"
+    },
+    {
+      "methods": [
+        "PUT"
+      ],
+      "path": "/schedules/"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedules/reschedule"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/schedules/search"
+    },
+    {
+      "methods": [
+        "GET"
+      ],
+      "path": "/schedules/status/:type/simpleList"
+    },
+    {
+      "methods": [
+        "POST"
+      ],
+      "path": "/specialities/search"
+    }
+  ]
+}
