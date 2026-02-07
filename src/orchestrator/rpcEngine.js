@@ -140,8 +140,14 @@ export async function runRpc({ op, data } = {}) {
       const raw = String(data?.argument ?? "").trim();
       if (!raw) return contract.error("patient.search: argument é obrigatório (cpf ou nome)");
 
+      // 🔍 DEBUG: Log de busca de paciente
+      console.log("\n🔍 === PATIENT SEARCH DEBUG ===");
+      console.log("📝 Query original:", raw);
+
       const cpfDigits = onlyDigits(raw);
       const looksCpf = cpfDigits.length === 11;
+
+      console.log("🆔 CPF detectado?", looksCpf ? "SIM" : "NÃO", looksCpf ? `(${cpfDigits})` : "");
 
       // helper: verifica se todos os tokens do query aparecem no nome do paciente (sem acento/case)
       const containsAllTokens = (patientName, query) => {
@@ -154,6 +160,8 @@ export async function runRpc({ op, data } = {}) {
       if (looksCpf) {
         const hit = await indexGetByCpf(cpfDigits);
         if (hit?.id) {
+          console.log("✅ Paciente encontrado no índice local:", hit.name);
+          console.log("=================================\n");
           return contract.ok({
             data: { id: hit.id, label: `${String(hit.name||"").trim()} — CPF ${cpfDigits}`.trim() },
             options: [],
@@ -161,9 +169,13 @@ export async function runRpc({ op, data } = {}) {
           });
         }
 
+        console.log("⚠️  CPF não encontrado no índice local");
+
         // Se veio CPF + nome (opcional), usa nome como seed para puxar candidatos e filtrar pelo CPF
         const nameHint = String(data?.name ?? data?.fullName ?? "").trim();
         if (!nameHint) {
+          console.log("❌ Nome não fornecido junto com CPF");
+          console.log("=================================\n");
           return contract.ok({
             data: {},
             options: [],
@@ -171,6 +183,8 @@ export async function runRpc({ op, data } = {}) {
             message: "Perfeito. Para localizar seu cadastro com segurança, me diga seu nome completo junto do CPF.",
           });
         }
+
+        console.log("🔎 Buscando na API com nome:", nameHint);
 
         const seed = norm(nameHint).split(" ").filter(Boolean)[0] || "";
         if (!seed) {
@@ -275,8 +289,23 @@ export async function runRpc({ op, data } = {}) {
       if (!payload.name) return contract.error("patient.create: name é obrigatório");
       if (!payload.cpf || onlyDigits(payload.cpf).length !== 11) return contract.error("patient.create: CPF inválido (11 dígitos)");
       if (!payload.birthday) return contract.error("patient.create: birthday é obrigatório (YYYY-MM-DD)");
+      
       const r = await POST("/partners/patient", payload);
-      return contract.ok({ data: r?.data ?? r, nextAction: "patient_created" });
+      const created = r?.data ?? r;
+      
+      // 🔍 AUTO-INDEX: Indexa o paciente criado automaticamente
+      if (created?.id && payload.cpf) {
+        console.log("📝 Auto-indexando paciente criado:", created.id, payload.name);
+        await indexUpsertPatient({
+          id: created.id,
+          cpf: onlyDigits(payload.cpf),
+          name: payload.name
+        }).catch(err => {
+          console.error("⚠️  Erro ao indexar paciente:", err.message);
+        });
+      }
+      
+      return contract.ok({ data: created, nextAction: "patient_created" });
     }
 
     // ── update ──
@@ -408,20 +437,62 @@ export async function runRpc({ op, data } = {}) {
       const endpoint = op === "doctor.search" ? "/partners/performer/search" : "/partners/professional/search";
       const r = await POST(endpoint, { ...body, argument: body.argument || "" });
       const list = extractList(r);
+
+      // 🔍 DEBUG: Logs detalhados para diagnóstico
+      console.log("\n🔍 === PROFESSIONAL SEARCH DEBUG ===");
+      console.log("📝 Query original:", data?.query || body.argument);
+      console.log("📊 Total de profissionais retornados pela API:", list.length);
+      console.log("👥 Primeiros 10 profissionais:", list.slice(0, 10).map(p => ({
+        id: p.id || p.performerId || p.professionalId,
+        name: p.name,
+        speciality: p.speciality?.name || p.horary?.speciality?.name || "—"
+      })));
+
       if (data?.query || body.argument) {
         const q = data?.query || body.argument;
-        const match = resolveBestMatch(q, list);
-        if (match.best) return contract.ok({
-          data: match.best, resolved: match.status,
-          nextAction: "professional_resolved",
-          message: `Encontrei: ${match.best.name}`,
-        });
+        
+        // Matching com threshold mais baixo para nomes próprios (0.60 ao invés de 0.72)
+        const match = resolveBestMatch(q, list, { threshold: 0.60 });
+        
+        // 🔍 DEBUG: Resultado do matching
+        console.log("\n🎯 Resultado do matching:");
+        console.log("   Status:", match.status);
+        console.log("   Query normalizada:", match.queryNorm);
+        console.log("   Top 5 matches:", match.top.slice(0, 5).map(t => ({
+          name: t.item.name,
+          score: t.score.toFixed(3)
+        })));
+        
+        if (match.best) {
+          console.log("✅ Match encontrado:", match.best.name, "| Score:", match.top[0]?.score.toFixed(3));
+          console.log("=================================\n");
+          
+          return contract.ok({
+            data: match.best, 
+            resolved: match.status,
+            nextAction: "professional_resolved",
+            message: `Encontrei: ${match.best.name}`,
+          });
+        }
+        
+        console.log("❌ Nenhum match adequado encontrado");
+        console.log("=================================\n");
+        
+        // Retorna sugestões mais inteligentes
+        const suggestions = match.top.slice(0, 5);
         return contract.ok({
-          data: {}, options: list.slice(0, 10).map(i => ({ id: i.performerId || i.professionalId || i.id, label: `${i.name} — ${i.speciality?.name || ""}`.trim() })),
+          data: {}, 
+          options: list.slice(0, 10).map(i => ({ 
+            id: i.performerId || i.professionalId || i.id, 
+            label: `${i.name} — ${i.speciality?.name || ""}`.trim() 
+          })),
           nextAction: "professional_choose",
-          message: "Não encontrei esse profissional. Veja os disponíveis:",
+          message: suggestions.length > 0 
+            ? `Não encontrei "${q}" exatamente. Talvez você quis dizer: ${suggestions.slice(0, 3).map(s => s.item.name).join(", ")}?`
+            : "Não encontrei esse profissional. Veja os disponíveis:",
         });
       }
+      
       return contract.ok({ data: r, nextAction: "professionals_list" });
     }
 
