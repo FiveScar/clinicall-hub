@@ -50,7 +50,8 @@ const DEFAULT_PREFIXES = [
   "Ç",
 ];
 
-let index = new Map(); // phoneDigits -> { id, name, updatedAt }
+let phoneIndex = new Map(); // phoneDigits -> { id, name, cpf, updatedAt }
+let cpfIndex = new Map();   // cpfDigits   -> { id, name, cpf, updatedAt }
 let isLoaded = false;
 let isBuilding = false;
 let lastBuildAt = null;
@@ -69,9 +70,22 @@ async function loadFromDisk() {
     const raw = await fs.readFile(INDEX_PATH, "utf-8");
     const obj = JSON.parse(raw);
 
-    index = new Map();
-    for (const [k, v] of Object.entries(obj?.data || {})) {
-      index.set(k, v);
+    phoneIndex = new Map();
+    cpfIndex = new Map();
+
+    // Backward compat:
+    // - versões antigas salvavam apenas obj.data (phones)
+    // - versão nova salva obj.dataPhones e obj.dataCpf
+    const dataPhones = obj?.dataPhones || obj?.data || {};
+    const dataCpf = obj?.dataCpf || {};
+
+    for (const [k, v] of Object.entries(dataPhones)) {
+      const key = normalizeBRPhoneDigits(k);
+      if (key) phoneIndex.set(key, v);
+    }
+    for (const [k, v] of Object.entries(dataCpf)) {
+      const key = onlyDigits(k);
+      if (key) cpfIndex.set(key, v);
     }
 
     lastBuildAt = obj?.meta?.lastBuildAt || null;
@@ -85,15 +99,19 @@ async function loadFromDisk() {
 
 async function saveToDisk(metaExtra = {}) {
   await ensureDir();
-  const dataObj = Object.fromEntries(index.entries());
+  const dataPhones = Object.fromEntries(phoneIndex.entries());
+  const dataCpf = Object.fromEntries(cpfIndex.entries());
+
   const payload = {
     meta: {
       lastBuildAt,
       stats: lastBuildStats,
       ...metaExtra,
     },
-    data: dataObj,
+    dataPhones,
+    dataCpf,
   };
+
   await fs.writeFile(INDEX_PATH, JSON.stringify(payload), "utf-8");
 }
 
@@ -103,26 +121,42 @@ export async function getByPhone(rawPhone) {
   const digits = normalizeBRPhoneDigits(rawPhone);
   if (!looksLikeBRPhone(digits)) return null;
 
-  return index.get(digits) || null;
+  return phoneIndex.get(digits) || null;
+}
+
+export async function getByCpf(rawCpf) {
+  await loadFromDisk();
+
+  const digits = onlyDigits(rawCpf);
+  if (digits.length !== 11) return null;
+
+  return cpfIndex.get(digits) || null;
 }
 
 export async function upsertPatient(p) {
   await loadFromDisk();
 
-  const phones = extractPhoneDigitsFromPatient(p);
-  if (!phones.length) return 0;
-
-  let added = 0;
   const rec = {
     id: p?.id ?? null,
     name: p?.name ?? "",
+    cpf: onlyDigits(p?.cpf ?? ""),
     updatedAt: new Date().toISOString(),
   };
 
+  let added = 0;
+
+  // CPF index
+  if (rec.cpf && rec.cpf.length === 11) {
+    cpfIndex.set(rec.cpf, rec);
+    added += 1;
+  }
+
+  // Phone index
+  const phones = extractPhoneDigitsFromPatient(p);
   for (const ph of phones) {
     if (!looksLikeBRPhone(ph)) continue;
-    index.set(ph, rec);
-    added++;
+    phoneIndex.set(ph, rec);
+    added += 1;
   }
 
   return added;
@@ -200,7 +234,7 @@ export async function rebuildIndex() {
     }
 
     console.log(
-      `[patientIndex] rebuild finished scanned=${lastBuildStats.scanned} indexed=${lastBuildStats.indexed} phones=${index.size}`
+      `[patientIndex] rebuild finished scanned=${lastBuildStats.scanned} indexed=${lastBuildStats.indexed} phones=${phoneIndex.size} cpf=${cpfIndex.size}`
     );
 
     return { started: true, ok: true, stats: lastBuildStats };
@@ -223,7 +257,8 @@ export async function status() {
     isBuilding,
     lastBuildAt,
     stats: lastBuildStats,
-    countPhones: index.size,
+    countPhones: phoneIndex.size,
+    countCpf: cpfIndex.size,
     indexPath: INDEX_PATH,
   };
 }

@@ -4,6 +4,7 @@ import * as contract from "./contract.js";
 import { DEFAULTS } from "../config/defaults.js";
 import { CLINIC, getClinicSection } from "../config/clinic.js";
 import { resolveBestMatch, norm } from "../utils/semanticResolve.js";
+import { getByCpf as indexGetByCpf, upsertPatient as indexUpsertPatient } from "../index/patientIndex.js";
 
 /* ─── helpers ─────────────────────────────────────────────────────── */
 function onlyDigits(v) { return String(v ?? "").replace(/\D+/g, ""); }
@@ -136,19 +137,128 @@ export async function runRpc({ op, data } = {}) {
 
     // ── search ──
     if (op === "patient.search") {
-      const body = buildSearchBody(data || {});
-      if (!body.argument) return contract.error("patient.search: argument é obrigatório (cpf ou nome)");
+      const raw = String(data?.argument ?? "").trim();
+      if (!raw) return contract.error("patient.search: argument é obrigatório (cpf ou nome)");
+
+      const cpfDigits = onlyDigits(raw);
+      const looksCpf = cpfDigits.length === 11;
+
+      // helper: verifica se todos os tokens do query aparecem no nome do paciente (sem acento/case)
+      const containsAllTokens = (patientName, query) => {
+        const nameN = norm(patientName);
+        const tokens = norm(query).split(" ").filter(Boolean);
+        return tokens.every(t => nameN.includes(t));
+      };
+
+      // 1) Se veio CPF, tenta memória/índice local (blindado)
+      if (looksCpf) {
+        const hit = await indexGetByCpf(cpfDigits);
+        if (hit?.id) {
+          return contract.ok({
+            data: { id: hit.id, label: `${String(hit.name||"").trim()} — CPF ${cpfDigits}`.trim() },
+            options: [],
+            nextAction: "patient_found_single",
+          });
+        }
+
+        // Se veio CPF + nome (opcional), usa nome como seed para puxar candidatos e filtrar pelo CPF
+        const nameHint = String(data?.name ?? data?.fullName ?? "").trim();
+        if (!nameHint) {
+          return contract.ok({
+            data: {},
+            options: [],
+            nextAction: "need_name_for_cpf_search",
+            message: "Perfeito. Para localizar seu cadastro com segurança, me diga seu nome completo junto do CPF.",
+          });
+        }
+
+        const seed = norm(nameHint).split(" ").filter(Boolean)[0] || "";
+        if (!seed) {
+          return contract.ok({
+            data: {},
+            options: [],
+            nextAction: "need_name_for_cpf_search",
+            message: "Perfeito. Para localizar seu cadastro com segurança, me diga seu nome completo junto do CPF.",
+          });
+        }
+
+        const body = buildSearchBody({ ...data, argument: seed });
+        const r = await POST("/partners/patient/search", body);
+        const list = extractList(r);
+
+        const filtered = list.filter(p => onlyDigits(p?.cpf) === cpfDigits);
+        const finalList = filtered.length ? filtered : list;
+
+        const options = finalList.slice(0, 25).map(p => ({
+          id: p.id,
+          label: `${String(p.name||"").trim()} — CPF ${String(p.cpf||"").trim()}`.trim(),
+        }));
+
+        if (!options.length) return contract.ok({
+          data: [],
+          options: [],
+          nextAction: "patient_not_found",
+          message: "Não encontrei cadastro com esses dados. Posso fazer seu cadastro agora.",
+        });
+
+        if (options.length === 1) {
+          // upsert no índice (melhora as próximas buscas)
+          await indexUpsertPatient(finalList[0]).catch(() => {});
+          return contract.ok({
+            data: { id: options[0].id, label: options[0].label },
+            options: [],
+            nextAction: "patient_found_single",
+          });
+        }
+
+        return contract.ok({
+          data: {},
+          options,
+          nextAction: "choose_patient",
+          message: "Encontrei mais de um cadastro. Qual é o seu?",
+        });
+      }
+
+      // 2) Nome completo / texto: o endpoint do Clinicall é prefix-only → usa primeiro token como seed e filtra local
+      const qNorm = norm(raw);
+      const seed = qNorm.split(" ").filter(Boolean)[0] || qNorm;
+
+      const body = buildSearchBody({ ...data, argument: seed });
       const r = await POST("/partners/patient/search", body);
       const list = extractList(r);
-      const options = list.slice(0, 25).map(p => ({
-        id: p.id, label: `${String(p.name||"").trim()} — CPF ${String(p.cpf||"").trim()}`.trim(),
+
+      // Se o usuário mandou nome completo (tem espaço), tenta filtrar localmente
+      const isFullName = qNorm.includes(" ");
+      const filtered = isFullName ? list.filter(p => containsAllTokens(p?.name ?? "", raw)) : list;
+      const finalList = filtered.length ? filtered : list;
+
+      const options = finalList.slice(0, 25).map(p => ({
+        id: p.id,
+        label: `${String(p.name||"").trim()} — CPF ${String(p.cpf||"").trim()}`.trim(),
       }));
-      if (!options.length) return contract.ok({ data: [], options: [], nextAction: "patient_not_found",
-        message: "Não encontrei cadastro com esses dados. Posso fazer seu cadastro agora." });
-      if (options.length === 1) return contract.ok({ data: { id: options[0].id, label: options[0].label },
-        options: [], nextAction: "patient_found_single" });
-      return contract.ok({ data: {}, options, nextAction: "choose_patient",
-        message: "Encontrei mais de um cadastro. Qual é o seu?" });
+
+      if (!options.length) return contract.ok({
+        data: [],
+        options: [],
+        nextAction: "patient_not_found",
+        message: "Não encontrei cadastro com esses dados. Posso fazer seu cadastro agora.",
+      });
+
+      if (options.length === 1) {
+        await indexUpsertPatient(finalList[0]).catch(() => {});
+        return contract.ok({
+          data: { id: options[0].id, label: options[0].label },
+          options: [],
+          nextAction: "patient_found_single",
+        });
+      }
+
+      return contract.ok({
+        data: {},
+        options,
+        nextAction: "choose_patient",
+        message: "Encontrei mais de um cadastro. Qual é o seu?",
+      });
     }
 
     // ── get ──
