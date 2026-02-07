@@ -67,6 +67,14 @@ app.use("/specialities", specialitiesRouter);
 app.use("/procedures", proceduresRouter);
 app.use("/orders", ordersRouter);
 
+// domain tables
+import domainsRouter from "./routes/domains.routes.js";
+import parametersRouter from "./routes/parameters.routes.js";
+import clinicRouter from "./routes/clinic.routes.js";
+app.use("/domains", domainsRouter);
+app.use("/parameters", parametersRouter);
+app.use("/clinic", clinicRouter);
+
 // handler de erro padrão
 app.use((err, req, res, _next) => {
   const message = err?.message || String(err);

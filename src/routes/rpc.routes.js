@@ -1,12 +1,11 @@
 import express from "express";
-import { runRPC } from "../orchestrator/rpcEngine.js";
+import { runRpc } from "../orchestrator/rpcEngine.js";
 
 const router = express.Router();
 
 router.post("/", async (req, res) => {
   const { op, data = {} } = req.body || {};
-
-  const result = await runRPC(op, data);
+  const result = await runRpc({ op, data });
   res.json(result);
 });
 
