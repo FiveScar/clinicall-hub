@@ -62,7 +62,6 @@ router.post("/schedule", async (req, res, next) => {
       performerId: resolvedPerformerId,
     };
 
-    // Normalização de started
     if (!payload.started && started) payload.started = started;
     if (!payload.started && date && time) payload.started = `${date}T${time}`;
 
