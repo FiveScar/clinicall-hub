@@ -48,6 +48,72 @@ function toolErr(
 }
 
 /* =========================
+ *  HELPERS
+ * ========================= */
+
+function toIntOrNull(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toBool(v, def = false) {
+  if (v === null || v === undefined) return def;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") return ["true", "1", "yes", "y"].includes(v.toLowerCase());
+  if (typeof v === "number") return v === 1;
+  return def;
+}
+
+function todayISO() {
+  // Mantém simples: YYYY-MM-DD (UTC). Se quiser "America/Sao_Paulo", faz isso no RPC.
+  const d = new Date();
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function addDaysISO(iso, days) {
+  // iso: YYYY-MM-DD
+  const [y, m, d] = String(iso).split("-").map((x) => Number(x));
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+  const yyyy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function safeString(v) {
+  return String(v ?? "").trim();
+}
+
+function extractUpstreamErrorInfo(rpcResp) {
+  // rpcResp esperado (pelo que você mostrou): {status:"error", message:"...", details:{code,message,errorCode...}}
+  const details = rpcResp?.details || rpcResp?.data?.details || {};
+  const deep = rpcResp?.details?.details || {};
+  const msg =
+    safeString(details?.message) ||
+    safeString(deep?.message) ||
+    safeString(rpcResp?.message);
+
+  const errorCode =
+    details?.errorCode ||
+    deep?.errorCode ||
+    rpcResp?.details?.errorCode ||
+    null;
+
+  const code =
+    safeString(details?.code) ||
+    safeString(deep?.code) ||
+    safeString(rpcResp?.code) ||
+    "";
+
+  return { msg, errorCode, code, details };
+}
+
+/* =========================
  *  PATIENTS
  * ========================= */
 
@@ -116,8 +182,8 @@ router.get("/health", (req, res) => {
  */
 router.post("/patients/resolve", async (req, res) => {
   try {
-    const cpfRaw = String(req.body?.cpf ?? "").trim();
-    const name = String(req.body?.name ?? "").trim();
+    const cpfRaw = safeString(req.body?.cpf);
+    const name = safeString(req.body?.name);
     const cpfDigits = cpfRaw.replace(/\D+/g, "");
 
     if (!cpfDigits && !name) {
@@ -150,7 +216,6 @@ router.post("/patients/resolve", async (req, res) => {
       });
     }
 
-    // chama op existente do hub
     const rpcResp = await runRpc({
       op: "patient.search",
       data: cpfDigits ? { argument: cpfDigits, name } : { argument: name },
@@ -160,7 +225,7 @@ router.post("/patients/resolve", async (req, res) => {
       return toolErr(req, res, {
         http: 502,
         code: "UPSTREAM_ORCHESTRATION_ERROR",
-        message: rpcResp?.message || "Falha ao consultar CRM.",
+        message: "Não consegui concluir a busca agora. Podemos tentar novamente?",
         details: { rpc: rpcResp },
       });
     }
@@ -198,10 +263,93 @@ function mapFreeSlots(rpcResp) {
     return { status: "FOUND", slots, options };
   }
 
-  // fallback: se vier slots sem nextAction, ainda devolve
   if (slots.length) return { status: "FOUND", slots, options };
 
   return { status: "UNKNOWN", slots: [], options };
+}
+
+function pickTopN(mapped, n) {
+  const N = Number(n || 0);
+  if (!N || N <= 0) return mapped;
+
+  const slots = Array.isArray(mapped?.slots) ? mapped.slots.slice(0, N) : [];
+  const options = Array.isArray(mapped?.options) ? mapped.options.slice(0, N) : [];
+  return { ...mapped, slots, options };
+}
+
+async function findFreeSlotsWithExpansion(payload) {
+  // payload = { performerId, specialityId, companyId, insuranceId, procedureId, started, ended, maxSlots, ... }
+  // Expansão: se vazio, aumenta o "ended" em passos.
+  const started = payload.started || todayISO();
+  const initialEnded = payload.ended || addDaysISO(started, 7);
+
+  const expandIfEmpty = toBool(payload.expandIfEmpty, true);
+  const expandStepDays = toIntOrNull(payload.expandStepDays) ?? 7;
+  const maxLookaheadDays = toIntOrNull(payload.maxLookaheadDays) ?? 90;
+
+  // quantas tentativas no máximo, dado o maxLookaheadDays
+  const hardMaxTries = Math.max(1, Math.ceil(maxLookaheadDays / Math.max(1, expandStepDays)));
+
+  let tries = 0;
+  let currentEnded = initialEnded;
+  let lastRpc = null;
+  let lastMapped = null;
+
+  while (tries < hardMaxTries) {
+    tries += 1;
+
+    const rpcResp = await runRpc({
+      op: "schedule.findFreeSlots",
+      data: {
+        performerId: payload.performerId,
+        specialityId: payload.specialityId,
+        companyId: payload.companyId,
+        insuranceId: payload.insuranceId,
+        procedureId: payload.procedureId,
+        started,
+        ended: currentEnded,
+        maxSlots: payload.maxSlots,
+        performerName: payload.performerName,
+        specialityName: payload.specialityName,
+        companyName: payload.companyName,
+      },
+    });
+
+    lastRpc = rpcResp;
+
+    if (rpcResp?.status === "error") {
+      return { rpcResp, mapped: null, meta: { tries, started, ended: currentEnded } };
+    }
+
+    const mapped = mapFreeSlots(rpcResp);
+    lastMapped = mapped;
+
+    if (mapped.status === "FOUND") {
+      return {
+        rpcResp,
+        mapped,
+        meta: { tries, started, ended: currentEnded, expanded: tries > 1 },
+      };
+    }
+
+    if (!expandIfEmpty) {
+      return {
+        rpcResp,
+        mapped,
+        meta: { tries, started, ended: currentEnded, expanded: false },
+      };
+    }
+
+    // Expande a janela
+    currentEnded = addDaysISO(currentEnded, expandStepDays);
+  }
+
+  // Se estourou tentativas, devolve o último "NO_SLOTS/UNKNOWN"
+  return {
+    rpcResp: lastRpc,
+    mapped: lastMapped || { status: "NO_SLOTS", slots: [], options: [] },
+    meta: { tries, started, ended: currentEnded, expanded: true, maxed: true },
+  };
 }
 
 /**
@@ -212,25 +360,31 @@ function mapFreeSlots(rpcResp) {
  *  - insuranceId? (number)          (default no RPC)
  *  - procedureId? (number)          (default no RPC)
  *  - started? "YYYY-MM-DD"          (default hoje)
- *  - ended?   "YYYY-MM-DD"          (default hoje + N dias)
+ *  - ended?   "YYYY-MM-DD"          (default hoje + 7 dias)
  *  - maxSlots? number               (default no RPC)
+ *
+ *  + NOVO (ANTI-LOOP):
+ *  - offerCount? number             (default 3) -> devolve só os N primeiros horários
+ *  - expandIfEmpty? boolean         (default true) -> expande a busca se não houver horários
+ *  - expandStepDays? number         (default 7)
+ *  - maxLookaheadDays? number       (default 90)
  *
  * Retorno:
  *  - status: FOUND | NO_SLOTS | UNKNOWN
- *  - slots: [{scheduleId,date,hour,performer,performerId,speciality,specialityId,company,companyId}]
- *  - options: [{id,label}]  (pronto para o agente perguntar "qual prefere?")
+ *  - slots: [...]
+ *  - options: [{id,label}]
+ *  - meta: {started, ended, tries, expanded, maxed}
  */
 router.post("/schedules/available", async (req, res) => {
   try {
-    const performerId = req.body?.performerId;
-    const specialityId = req.body?.specialityId;
+    const performerId = toIntOrNull(req.body?.performerId);
+    const specialityId = toIntOrNull(req.body?.specialityId);
 
     if (!performerId && !specialityId) {
       return toolErr(req, res, {
         http: 400,
         code: "MISSING_FIELDS",
-        message:
-          "Informe performerId (id do profissional) ou specialityId (id da especialidade).",
+        message: "Informe performerId (id do profissional) ou specialityId (id da especialidade).",
         details: { required_fields: ["performerId|specialityId"] },
         required_fields: ["performerId|specialityId"],
         example: {
@@ -240,42 +394,58 @@ router.post("/schedules/available", async (req, res) => {
           procedureId: 14,
           started: "2026-02-10",
           ended: "2026-02-17",
-          maxSlots: 30,
+          offerCount: 3,
+          expandIfEmpty: true,
+          expandStepDays: 7,
+          maxLookaheadDays: 90,
         },
       });
     }
 
-    const rpcResp = await runRpc({
-      op: "schedule.findFreeSlots",
-      data: {
-        performerId,
-        specialityId,
-        companyId: req.body?.companyId,
-        insuranceId: req.body?.insuranceId,
-        procedureId: req.body?.procedureId,
-        started: req.body?.started,
-        ended: req.body?.ended,
-        maxSlots: req.body?.maxSlots,
-        performerName: req.body?.performerName,
-        specialityName: req.body?.specialityName,
-        companyName: req.body?.companyName,
-      },
+    const offerCount = toIntOrNull(req.body?.offerCount) ?? 3;
+
+    const { rpcResp, mapped, meta } = await findFreeSlotsWithExpansion({
+      performerId,
+      specialityId,
+      companyId: toIntOrNull(req.body?.companyId),
+      insuranceId: toIntOrNull(req.body?.insuranceId),
+      procedureId: toIntOrNull(req.body?.procedureId),
+      started: safeString(req.body?.started) || undefined,
+      ended: safeString(req.body?.ended) || undefined,
+      maxSlots: toIntOrNull(req.body?.maxSlots),
+      performerName: safeString(req.body?.performerName) || undefined,
+      specialityName: safeString(req.body?.specialityName) || undefined,
+      companyName: safeString(req.body?.companyName) || undefined,
+      expandIfEmpty: req.body?.expandIfEmpty,
+      expandStepDays: req.body?.expandStepDays,
+      maxLookaheadDays: req.body?.maxLookaheadDays,
     });
 
     if (rpcResp?.status === "error") {
       return toolErr(req, res, {
         http: 502,
         code: "UPSTREAM_ORCHESTRATION_ERROR",
-        message: rpcResp?.message || "Falha ao consultar agenda no CRM.",
+        message: "Não consegui consultar a agenda agora. Podemos tentar de novo?",
         details: { rpc: rpcResp },
       });
     }
 
-    const mapped = mapFreeSlots(rpcResp);
+    const trimmed = pickTopN(mapped, offerCount);
+
+    // Mensagens mais “assistente-like”, mas ainda neutras (LLM humaniza por cima)
+    let msg = rpcResp?.message || "ok";
+    if (trimmed.status === "FOUND") {
+      const count = trimmed.options?.length || trimmed.slots?.length || 0;
+      msg = count
+        ? `Encontrei ${count} horário(s) disponível(is).`
+        : "Encontrei horários disponíveis.";
+    } else if (trimmed.status === "NO_SLOTS") {
+      msg = `Não há horários disponíveis de ${meta.started} a ${meta.ended}. Posso buscar em outro período.`;
+    }
 
     return toolOk(req, res, {
-      data: mapped,
-      message: rpcResp?.message || "ok",
+      data: { ...trimmed, meta },
+      message: msg,
     });
   } catch (err) {
     return toolErr(req, res, {
@@ -296,16 +466,28 @@ router.post("/schedules/available", async (req, res) => {
  *  - procedureId (number) [obrigatório]
  *  - confirm? (boolean)   [default true] -> usa schedule.bookAndConfirm
  *
- * Retorno:
- *  - status: BOOKED | BOOKED_CONFIRMED
- *  - result: payload do CRM (booked/confirmed quando aplicável)
+ *  + NOVO (ANTI-LOOP / CONFLITO):
+ *  - searchContext? (object) -> se o horário escolhido estiver ocupado, o hub já devolve novas opções
+ *    Ex:
+ *    {
+ *      "performerId": 29,
+ *      "companyId": 100000,
+ *      "insuranceId": 3,
+ *      "procedureId": 14,
+ *      "started": "2026-02-10",
+ *      "ended": "2026-02-17",
+ *      "offerCount": 3,
+ *      "expandIfEmpty": true,
+ *      "expandStepDays": 7,
+ *      "maxLookaheadDays": 90
+ *    }
  */
 router.post("/schedules/book", async (req, res) => {
   try {
-    const scheduleId = req.body?.scheduleId;
-    const patientId = req.body?.patientId;
-    const insuranceId = req.body?.insuranceId;
-    const procedureId = req.body?.procedureId;
+    const scheduleId = toIntOrNull(req.body?.scheduleId);
+    const patientId = toIntOrNull(req.body?.patientId);
+    const insuranceId = toIntOrNull(req.body?.insuranceId);
+    const procedureId = toIntOrNull(req.body?.procedureId);
     const confirm = req.body?.confirm ?? true;
 
     const missing = [];
@@ -322,11 +504,20 @@ router.post("/schedules/book", async (req, res) => {
         details: { required_fields: missing },
         required_fields: missing,
         example: {
-          scheduleId: 123,
+          scheduleId: 781661,
           patientId: 418,
           insuranceId: 3,
           procedureId: 14,
           confirm: true,
+          searchContext: {
+            performerId: 29,
+            companyId: 100000,
+            insuranceId: 3,
+            procedureId: 14,
+            started: "2026-02-10",
+            ended: "2026-02-17",
+            offerCount: 3,
+          },
         },
       });
     }
@@ -337,10 +528,55 @@ router.post("/schedules/book", async (req, res) => {
     });
 
     if (rpcResp?.status === "error") {
+      const { msg, errorCode } = extractUpstreamErrorInfo(rpcResp);
+
+      // Caso clássico do seu teste: "Horário já está ocupado!"
+      if (msg.toLowerCase().includes("horário já está ocupado") || msg.toLowerCase().includes("horario ja esta ocupado")) {
+        const searchContext = req.body?.searchContext || null;
+
+        let refresh = null;
+        if (searchContext && (searchContext.performerId || searchContext.specialityId)) {
+          const offerCount = toIntOrNull(searchContext.offerCount) ?? 3;
+
+          const { rpcResp: refreshRpc, mapped, meta } = await findFreeSlotsWithExpansion({
+            performerId: toIntOrNull(searchContext.performerId),
+            specialityId: toIntOrNull(searchContext.specialityId),
+            companyId: toIntOrNull(searchContext.companyId),
+            insuranceId: toIntOrNull(searchContext.insuranceId),
+            procedureId: toIntOrNull(searchContext.procedureId),
+            started: safeString(searchContext.started) || undefined,
+            ended: safeString(searchContext.ended) || undefined,
+            maxSlots: toIntOrNull(searchContext.maxSlots),
+            performerName: safeString(searchContext.performerName) || undefined,
+            specialityName: safeString(searchContext.specialityName) || undefined,
+            companyName: safeString(searchContext.companyName) || undefined,
+            expandIfEmpty: searchContext.expandIfEmpty,
+            expandStepDays: searchContext.expandStepDays,
+            maxLookaheadDays: searchContext.maxLookaheadDays,
+          });
+
+          if (refreshRpc?.status !== "error" && mapped) {
+            refresh = { ...pickTopN(mapped, offerCount), meta };
+          }
+        }
+
+        return toolErr(req, res, {
+          http: 409,
+          code: "SLOT_OCCUPIED",
+          message: "Esse horário acabou de ser preenchido. Posso te sugerir outros horários?",
+          details: {
+            errorCode,
+            refresh, // se existir, o agente já recebe slots/options novos aqui
+            rpc: rpcResp,
+          },
+        });
+      }
+
+      // Qualquer outro erro do CRM/orquestração:
       return toolErr(req, res, {
         http: 502,
         code: "UPSTREAM_ORCHESTRATION_ERROR",
-        message: rpcResp?.message || "Falha ao agendar no CRM.",
+        message: "Não consegui concluir o agendamento agora. Podemos tentar novamente?",
         details: { rpc: rpcResp },
       });
     }
@@ -369,7 +605,7 @@ router.post("/schedules/book", async (req, res) => {
  */
 router.post("/schedules/confirm", async (req, res) => {
   try {
-    const scheduleId = req.body?.scheduleId ?? req.body?.id;
+    const scheduleId = toIntOrNull(req.body?.scheduleId ?? req.body?.id);
 
     if (!scheduleId) {
       return toolErr(req, res, {
@@ -391,7 +627,7 @@ router.post("/schedules/confirm", async (req, res) => {
       return toolErr(req, res, {
         http: 502,
         code: "UPSTREAM_ORCHESTRATION_ERROR",
-        message: rpcResp?.message || "Falha ao confirmar no CRM.",
+        message: "Não consegui confirmar agora. Podemos tentar novamente?",
         details: { rpc: rpcResp },
       });
     }
@@ -418,8 +654,8 @@ router.post("/schedules/confirm", async (req, res) => {
  */
 router.post("/schedules/cancel", async (req, res) => {
   try {
-    const scheduleId = req.body?.scheduleId ?? req.body?.id;
-    const reason = String(req.body?.reason ?? "").trim();
+    const scheduleId = toIntOrNull(req.body?.scheduleId ?? req.body?.id);
+    const reason = safeString(req.body?.reason);
 
     if (!scheduleId) {
       return toolErr(req, res, {
@@ -441,7 +677,7 @@ router.post("/schedules/cancel", async (req, res) => {
       return toolErr(req, res, {
         http: 502,
         code: "UPSTREAM_ORCHESTRATION_ERROR",
-        message: rpcResp?.message || "Falha ao cancelar no CRM.",
+        message: "Não consegui concluir o cancelamento agora. Podemos tentar novamente?",
         details: { rpc: rpcResp, reason },
       });
     }
@@ -471,11 +707,11 @@ router.post("/schedules/cancel", async (req, res) => {
  */
 router.post("/schedules/reschedule", async (req, res) => {
   try {
-    const oldScheduleId = req.body?.oldScheduleId ?? req.body?.currentScheduleId;
-    const newScheduleId = req.body?.newScheduleId ?? req.body?.scheduleId;
-    const patientId = req.body?.patientId;
-    const insuranceId = req.body?.insuranceId;
-    const procedureId = req.body?.procedureId;
+    const oldScheduleId = toIntOrNull(req.body?.oldScheduleId ?? req.body?.currentScheduleId);
+    const newScheduleId = toIntOrNull(req.body?.newScheduleId ?? req.body?.scheduleId);
+    const patientId = toIntOrNull(req.body?.patientId);
+    const insuranceId = toIntOrNull(req.body?.insuranceId);
+    const procedureId = toIntOrNull(req.body?.procedureId);
 
     const missing = [];
     if (!oldScheduleId) missing.push("oldScheduleId");
@@ -510,7 +746,7 @@ router.post("/schedules/reschedule", async (req, res) => {
       return toolErr(req, res, {
         http: 502,
         code: "UPSTREAM_ORCHESTRATION_ERROR",
-        message: rpcResp?.message || "Falha ao remarcar no CRM.",
+        message: "Não consegui concluir a remarcação agora. Podemos tentar novamente?",
         details: { rpc: rpcResp },
       });
     }
