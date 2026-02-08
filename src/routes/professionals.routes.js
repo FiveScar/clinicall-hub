@@ -5,35 +5,21 @@ import * as clinicallModule from "../clinicall/client.js";
 const clinicall = clinicallModule.default ?? clinicallModule;
 const router = express.Router();
 
-/**
- * Monta payload paginado padrão do Clinicall:
- * { argument, page, sizePage, fieldSort, sortDirection }
- *
- * No Hub aceitamos:
- * - search (alias de argument)
- * - size (alias de sizePage)
- */
-function buildPagedSearchPayload(input = {}) {
-  const argument =
-    (typeof input.argument === "string" ? input.argument : null) ??
-    (typeof input.search === "string" ? input.search : null) ??
-    "";
+function toInt(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
 
-  const pageRaw = input.page ?? 0;
-  const sizeRaw = input.sizePage ?? input.size ?? 25;
-
-  const page = Number(pageRaw);
-  const sizePage = Number(sizeRaw);
-
-  const fieldSort = (input.fieldSort ?? "name").toString();
-  const sortDirection = (input.sortDirection ?? "asc").toString().toLowerCase();
+function buildPageSearch(input = {}) {
+  // hub-friendly aliases
+  const argument = (input.argument ?? input.search ?? "").toString();
 
   return {
     argument,
-    page: Number.isFinite(page) && page >= 0 ? page : 0,
-    sizePage: Number.isFinite(sizePage) && sizePage > 0 && sizePage <= 100 ? sizePage : 25,
-    fieldSort,
-    sortDirection: sortDirection === "desc" ? "desc" : "asc",
+    page: toInt(input.page, 0),
+    sizePage: toInt(input.sizePage, 25),
+    fieldSort: (input.fieldSort ?? "name").toString(),
+    sortDirection: (input.sortDirection ?? "asc").toString(),
   };
 }
 
@@ -41,19 +27,22 @@ function buildPagedSearchPayload(input = {}) {
  * POST /professionals/
  * -> Clinicall: POST /partners/performer/search
  *
- * Contrato real do Clinicall (doc):
- * { argument, page, sizePage, fieldSort, sortDirection }
+ * Aceita:
+ * { search, page, sizePage, fieldSort, sortDirection }
  *
- * No Hub:
- * { search?, argument?, page?, sizePage?, size?, fieldSort?, sortDirection? }
+ * (Se você quiser, pode aceitar também filtros extras no futuro,
+ * mas P0 é bater 100% com a doc e parar de tomar validação aleatória)
  */
 router.post("/", async (req, res, next) => {
   try {
-    const payload = buildPagedSearchPayload(req.body ?? {});
+    const bodyIn = req.body ?? {};
+    const payload = buildPageSearch(bodyIn);
+
     const data = await clinicall.request("/partners/performer/search", {
       method: "POST",
       body: payload,
     });
+
     res.json({ ok: true, data });
   } catch (err) {
     next(err);
@@ -64,12 +53,8 @@ router.post("/", async (req, res, next) => {
  * POST /professionals/schedule
  * -> Clinicall: POST /partners/schedule/v2/search
  *
- * No Hub aceitamos:
- * { performerId, doctorId?, date?, time?, started?, ...rest }
- *
- * Observação:
- * - performerId é obrigatório
- * - (P1) depois vamos exigir date range started/ended pra slots.
+ * Mantém como está, só exigindo performerId.
+ * (Se vier vazio, é dado de agenda mesmo — não é bug do hub)
  */
 router.post("/schedule", async (req, res, next) => {
   try {
