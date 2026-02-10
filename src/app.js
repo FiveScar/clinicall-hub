@@ -1,6 +1,7 @@
 // src/app.js
 import express from "express";
 import crypto from "crypto";
+import { createRequire } from "module";
 
 import authRouter from "./routes/auth.routes.js";
 
@@ -18,7 +19,17 @@ import buildRoutesRouter from "./routes/__routes.routes.js";
 import rpcRouter from "./routes/rpc.routes.js";
 import indexRouter from "./routes/index.routes.js";
 
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json");
+const middlewareVersion = process.env.MIDDLEWARE_VERSION ?? version;
+
 const app = express();
+
+// ✅ versão do middleware
+app.use((_req, res, next) => {
+  res.setHeader("X-Middleware-Version", middlewareVersion);
+  next();
+});
 
 // ✅ Request ID + log curto
 app.use((req, res, next) => {
